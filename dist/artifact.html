@@ -2685,7 +2685,7 @@ APP_DATA.glossary = [
     attempts: {},       // id -> [{ts, text, code, mode, dur, score, src, fb}]
     sessions: [],       // [{ts, stage, items:[{id, score}], avg}]
     cm: { done: {}, notes: "" },
-    settings: { apiKey: "", model: "claude-opus-5-5", provider: "auto", keepAudio: true, theme: "system", qSeconds: 120 }
+    settings: { apiKey: "", groqKey: "", sttEngine: "auto", model: "claude-opus-5-5", provider: "auto", keepAudio: true, theme: "system", qSeconds: 120 }
   });
   let state = defaults();
   function load() {
@@ -2704,16 +2704,16 @@ APP_DATA.glossary = [
     return state;
   }
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ } }
-  function exportJSON() { const s = JSON.parse(JSON.stringify(state)); s.settings.apiKey = ""; return JSON.stringify(s); }
+  function exportJSON() { const s = JSON.parse(JSON.stringify(state)); s.settings.apiKey = ""; s.settings.groqKey = ""; return JSON.stringify(s); }
   function importJSON(txt) {
     const s = JSON.parse(txt);
     if (!s || typeof s !== "object" || !s.attempts) throw new Error("bad");
-    const key = state.settings.apiKey;
+    const key = state.settings.apiKey, gk = state.settings.groqKey;
     state = Object.assign(defaults(), s);
-    state.settings = Object.assign(defaults().settings, s.settings || {}, { apiKey: key });
+    state.settings = Object.assign(defaults().settings, s.settings || {}, { apiKey: key, groqKey: gk });
     save();
   }
-  function reset() { const key = state.settings.apiKey; state = defaults(); state.settings.apiKey = key; save(); }
+  function reset() { const key = state.settings.apiKey, gk = state.settings.groqKey; state = defaults(); state.settings.apiKey = key; state.settings.groqKey = gk; save(); }
 
   function addAttempt(id, a) { (state.attempts[id] = state.attempts[id] || []).push(a); save(); }
   function best(id) { const a = state.attempts[id]; if (!a || !a.length) return null; return Math.max(...a.map(x => x.score ?? 0)); }
@@ -2983,6 +2983,25 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   let srBroken = false;
+  /* Whisper (Groq) דרך פונקציית השרת /api/transcribe */
+  const WHISPER_PROMPT = "ריאיון עבודה למשרת Unity Developer ב-Moon Active. מונחים: Unity, C#, MonoBehaviour, Coroutine, async/await, Task, CancellationToken, Addressables, ScriptableObject, Object Pooling, Garbage Collection, GC Alloc, Profiler, Draw Calls, Batching, Canvas, Prefab, Singleton, Events, Dependency Injection, Server Authoritative, Idempotency, Claude Code, Cursor, LLM, Agent, MCP, RAG, Firebase, Coin Master, Space Roads, AddForce, Bagira.";
+  function whisperReady() { return !IN_CLAUDE && state.settings.sttEngine !== "browser" && /^gsk_/.test(state.settings.groqKey || "") && !!(navigator.mediaDevices && window.MediaRecorder) && location.protocol.startsWith("http"); }
+  async function transcribe(blob) {
+    const res = await fetch("api/transcribe", {
+      method: "POST",
+      headers: { "content-type": blob.type || "audio/webm", "x-groq-key": state.settings.groqKey, "x-model": "whisper-large-v3", "x-prompt": encodeURIComponent(WHISPER_PROMPT) },
+      body: blob
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(data.error || "stt"), { code: data.error, status: res.status, detail: data.message });
+    return (data.text || "").trim();
+  }
+  function pickMime() {
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return "";
+    for (const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) if (MediaRecorder.isTypeSupported(t)) return t;
+    return "";
+  }
+
   class Recorder {
     constructor({ onText, onInterim, onState }) {
       this.onText = onText; this.onInterim = onInterim; this.onState = onState;
@@ -2990,8 +3009,43 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       this.mode = null; this.startedAt = 0; this.elapsed = 0;
     }
     static support() {
-      if (IN_CLAUDE) return { dictation: !!dictation, speech: false, media: false };
-      return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder) };
+      if (IN_CLAUDE) return { dictation: !!dictation, speech: false, media: false, whisper: false };
+      return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder), whisper: whisperReady() };
+    }
+    /* הקלטה מלאה ותמלול אחרי עצירה */
+    async startWhisper() {
+      this.mode = "whisper";
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      } catch (e) { this.active = false; this.finished = true; this.onState("error", "denied"); return; }
+      if (!this.active) { this.stream.getTracks().forEach(t => t.stop()); return; }
+      const mime = pickMime();
+      try { this.mr = new MediaRecorder(this.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
+      catch (e) { this.mr = new MediaRecorder(this.stream); }
+      this.mr.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
+      this.mr.onstop = () => {
+        this.stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(this.chunks, { type: (this.mr.mimeType || mime || "audio/webm").split(";")[0] });
+        this.lastBlob = blob;
+        if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
+        this.audioUrl = URL.createObjectURL(blob);
+        this.onState("audio", this.audioUrl);
+        this.runTranscribe(blob);
+      };
+      this.mr.start(1000);
+      this.onState("on");
+    }
+    async runTranscribe(blob) {
+      this.onState("transcribing");
+      try {
+        const text = await transcribe(blob || this.lastBlob);
+        if (text) this.onText(text);
+        this.finished = true; this.onInterim("");
+        this.onState("off", text ? "transcribed" : "empty");
+      } catch (e) {
+        this.finished = true;
+        this.onState("off", "stt-" + (e.code || "error") + (e.status ? ":" + e.status : ""));
+      }
     }
     async start() {
       if (this.active) return;
@@ -3017,6 +3071,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         return;
       }
       if (IN_CLAUDE) { this.active = false; this.onState("error", "claude-frame"); return; }
+      if (whisperReady()) { this.startWhisper(); return; }
       if (SR && !srBroken) {
         this.mode = "speech";
         try { this.startRecognition(); } catch (e) { this.active = false; this.onState("error", "unsupported"); return; }   // קודם התמלול – עוד בתוך הלחיצה (חשוב ב-iPhone)
@@ -3113,6 +3168,12 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       clearTimeout(this.restartT);
       if (wasActive) this.elapsed += (performance.now() - this.startedAt) / 1000;
       if (this.mode === "dictation") { dictation.stop().catch(() => { }); setTimeout(() => this.finish(), 1500); return; }
+      if (this.mode === "whisper") {
+        if (this.mr && this.mr.state !== "inactive") { try { this.mr.stop(); } catch (e) { this.finish(); } }
+        else if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.finish(); }
+        else this.finish();
+        return;
+      }
       const r = this.rec;
       if (r) {
         try { r.stop(); } catch (e) { }
@@ -3160,7 +3221,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     load, save, get state() { return state; }, exportJSON, importJSON, reset,
     addAttempt, best, last, evaluate, sessionSummary, providerAvailable, initSample, initDictation,
     Recorder, speak, stopSpeak, coverage, words, fillerCount,
-    inClaude: IN_CLAUDE, isIOS: IS_IOS,
+    inClaude: IN_CLAUDE, isIOS: IS_IOS, whisperReady,
     standalone: !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true,
     async diag() {
       await initDictation();
@@ -3306,6 +3367,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       ${prov === "offline"
         ? `<p class="note">כרגע ההערכה בסיסית: בודקת אילו נקודות מפתח הזכרת, בלי לבדוק דיוק. כדי לקבל ציון, תיקונים ומשוב של מראיין, חבר AI בלשונית <a href="#settings">הגדרות</a>.</p>`
         : `<p class="note violet">הערכת AI פעילה (${prov === "claude" ? "Claude דרך claude.ai" : "Claude API עם המפתח שלך"}). כל תשובה מקבלת ציון, תיקונים, מה המראיין מצפה לשמוע ושאלת המשך.</p>`}
+      ${!E.inClaude && !E.whisperReady() ? `<p class="note">לתמלול מדויק של הדיבור (Whisper) הוסף מפתח Groq חינמי ב<a href="#settings">הגדרות</a>.</p>` : ""}
       <p class="small muted">איך עונים: לוחצים על המיקרופון ומדברים כמו בריאיון. התמלול מופיע בתיבה ואפשר לתקן אותו לפני שליחה. אם התמלול לא עובד במכשיר, אפשר להשתמש במיקרופון של המקלדת בתוך התיבה.</p>
     </section>
 
@@ -3432,8 +3494,10 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       onInterim: t => { interimText = t; const el = $("#interim", root); if (el) el.textContent = t; },
       onState: (s, extra) => {
         const b = $("#recBtn", root);
-        if (s === "on") { mode = "voice"; b.classList.add("on", "stop"); b.innerHTML = icon("stop"); b.setAttribute("aria-label", "עצור הקלטה"); $("#recHint", root).textContent = "מקליט… דבר כמו בריאיון"; }
+        if (s === "on") { mode = "voice"; b.classList.add("on", "stop"); b.innerHTML = icon("stop"); b.setAttribute("aria-label", "עצור הקלטה"); $("#recHint", root).textContent = sup.whisper ? "מקליט… דבר כמו בריאיון ולחץ שוב כשסיימת" : "מקליט… דבר כמו בריאיון"; }
         if (s === "off") { stopTimer(); b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); b.setAttribute("aria-label", "התחל הקלטה"); $("#recHint", root).textContent = extra && extra !== "stopped" && extra !== "viewer_stopped" ? recError(extra) : "ההקלטה נעצרה. אפשר לתקן את התמלול ואז לבקש משוב."; }
+        if (s === "transcribing") { b.classList.remove("on", "stop"); b.innerHTML = '<span class="spinner"></span>'; b.disabled = true; $("#recHint", root).textContent = "מתמלל את ההקלטה עם Whisper…"; }
+        if (s === "off") { b.disabled = false; }
         if (s === "audio") { audioUrl = extra; const a = $("#audioBox", root); a.innerHTML = `<p class="small muted">ההקלטה שלך – שמע את עצמך:</p><audio controls src="${extra}"></audio>`; }
         if (s === "error") { b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); stopTimer(); $("#recHint", root).textContent = recError(extra); }
       }
@@ -3447,10 +3511,19 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       if (r === "unsupported" || r === "unavailable") return "התמלול לא נתמך כאן. אפשר להקליד, או להשתמש במיקרופון של המקלדת בתוך התיבה.";
       if (r === "mic") return "לא הצלחתי לפתוח את המיקרופון.";
       if (r === "hidden") return "ההקלטה נעצרה כי המסך הוסתר.";
+      if (r === "transcribed") return "התמלול נוסף לתיבה. אפשר לתקן, להוסיף הקלטה, או לבקש משוב.";
+      if (r === "empty") return "לא זוהה דיבור בהקלטה. נסה שוב, קרוב יותר למיקרופון.";
+      if (r && r.startsWith("stt-")) { showRetry(); return r.includes("401") || r.includes("missing_key") ? "מפתח Groq לא תקין. בדוק אותו בהגדרות. ההקלטה נשמרה – אפשר לנסות שוב." : r.includes("429") ? "הגעת למגבלת התמלול החינמית לדקה זו. נסה שוב בעוד רגע – ההקלטה נשמרה." : r.includes("too_large") ? "ההקלטה ארוכה מדי לתמלול אחד. נסה תשובה קצרה יותר." : "התמלול נכשל (בעיית רשת?). ההקלטה נשמרה – אפשר לנסות שוב."; }
       if (r === "speech-ended") return "התמלול נעצר אחרי שקט. מה שנאמר נשמר בתיבה – לחץ שוב על המיקרופון כדי להמשיך.";
       return "ההקלטה נעצרה.";
     }
 
+    function showRetry() {
+      const box = $("#audioBox", root); if (!box || $("#sttRetry", root)) return;
+      const b = document.createElement("button"); b.className = "btn sm"; b.id = "sttRetry"; b.textContent = "נסה לתמלל שוב";
+      b.onclick = () => { b.remove(); rec.runTranscribe(); };
+      box.appendChild(b);
+    }
     function keyboardMic() { const t = $("#ans", root); if (t) { t.focus(); t.scrollIntoView({ block: "center", behavior: "smooth" }); } }
     function showPermBtn() {
       const b = $("#permBtn", root); if (!b) return;
@@ -3477,7 +3550,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         <button class="recbtn" id="recBtn" aria-label="${canRec ? "התחל הקלטה" : "ענה בעל פה עם מיקרופון המקלדת"}">${icon("mic")}</button>
         <div class="stack" style="gap:2px;flex:1;min-width:0">
           <span class="timer" id="timer">00:00</span>
-          <span class="small muted" id="recHint">${canRec ? "לחץ והתחל לדבר. התמלול יופיע בתיבה." : KB_TIP}</span>
+          <span class="small muted" id="recHint">${!canRec ? KB_TIP : sup.whisper ? "לחץ, דבר, ולחץ שוב לסיום. התמלול (Whisper) יופיע בתיבה אחרי העצירה." : "לחץ והתחל לדבר. התמלול יופיע בתיבה."}</span>
           <button class="btn sm ghost" id="permBtn" hidden>פתח הרשאות של העמוד</button>
         </div>
       </div>
@@ -3790,6 +3863,21 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       <button class="btn primary" id="saveAi">שמור</button>
     </section>
     <section class="card">
+      <h2>תמלול דיבור מדויק (Whisper)</h2>
+      <p class="small">התמלול המובנה בטלפון מפספס מילים ומתקשה עם מונחים באנגלית. עם מפתח Groq חינמי, ההקלטה המלאה נשלחת ל-Whisper large-v3 ומתומללת אחרי שעוצרים – מדויק יותר, בלי חורים, וגם אפשר לשמוע את עצמך.</p>
+      <ol class="small">
+        <li>להיכנס ל-<span class="ltr kbd">console.groq.com/keys</span> ולהירשם (חינם).</li>
+        <li>ללחוץ Create API Key ולהעתיק את המפתח (מתחיל ב-<span class="ltr kbd">gsk_</span>).</li>
+        <li>להדביק כאן ולשמור.</li>
+      </ol>
+      <label class="field" for="groqKey">Groq API key
+        <input id="groqKey" type="password" dir="ltr" autocomplete="off" placeholder="gsk_..." value="${esc(s.groqKey || "")}"></label>
+      <label class="field" for="stt">מנוע תמלול
+        <select id="stt"><option value="auto" ${s.sttEngine !== "browser" ? "selected" : ""}>Whisper כשיש מפתח (מומלץ)</option><option value="browser" ${s.sttEngine === "browser" ? "selected" : ""}>התמלול המובנה בטלפון (חי, פחות מדויק)</option></select></label>
+      <p class="small muted">ההקלטה נשלחת דרך שרת האפליקציה ל-Groq לתמלול בלבד, ולא נשמרת. המפתח נשמר רק במכשיר הזה. התוכנית החינמית של Groq מוגבלת בכמות בקשות – בשימוש רגיל לתרגול זה לא אמור להפריע.</p>
+      <button class="btn primary" id="saveGroq">שמור</button>
+    </section>
+    <section class="card">
       <h2>בדיקת מיקרופון והקראה</h2>
       <div id="diag" class="small muted">בודק…</div>
       <div class="row"><button class="btn sm" id="testSpeak">${icon("spk")} נסה הקראה</button><button class="btn sm ghost" id="permOpen" hidden>פתח הרשאות של העמוד</button></div>
@@ -3821,12 +3909,17 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       const lines = d.inClaude
         ? [`האפליקציה פתוחה בתוך claude.ai.`, `הכתבה של claude.ai: ${yes(d.dictation)}${d.dictationState ? " (" + ({ granted: "מאושר", prompt: "תתבקש לאשר בלחיצה הראשונה", denied: "נדחה – אפשר להפעיל בהרשאות", unavailable: "לא זמין" }[d.dictationState] || d.dictationState) + ")" : ""}`, `הקראה של claude.ai: ${yes(d.tts)}`,
            d.dictation ? "" : "במכשיר הזה claude.ai לא מאפשר מיקרופון לעמוד. הדרך לענות בעל פה: מיקרופון המקלדת בתוך תיבת התשובה, או גרסת האתר העצמאית."]
-        : [`תמלול דיבור בדפדפן: ${yes(d.speechAPI)}`, `הקראה בדפדפן: ${yes(d.synth)}`, E.isIOS ? (E.standalone ? "פתוח כאפליקציה ממסך הבית." : "פתוח ב-Safari. להתקנה: שיתוף ← \"הוסף למסך הבית\".") : "",
-           E.isIOS ? "ב-iPhone ההקלטה לשמיעה חוזרת כבויה כי המיקרופון לא מתחלק בין התמלול להקלטה." : ""];
+        : [`תמלול Whisper: ${E.whisperReady() ? "✓ פעיל" : "✗ לא פעיל (צריך מפתח Groq)"}`, `תמלול דיבור בדפדפן: ${yes(d.speechAPI)}`, `הקראה בדפדפן: ${yes(d.synth)}`, E.isIOS ? (E.standalone ? "פתוח כאפליקציה ממסך הבית." : "פתוח ב-Safari. להתקנה: שיתוף ← \"הוסף למסך הבית\".") : "",
+           E.isIOS && !E.whisperReady() ? "ב-iPhone ההקלטה לשמיעה חוזרת זמינה רק עם Whisper." : ""];
       box.innerHTML = lines.filter(Boolean).map(l => `<p>${esc(l)}</p>`).join("");
       if (d.inClaude && d.dictationState === "denied") { const b = $("#permOpen"); b.hidden = false; b.onclick = () => E.openPermissions().then(() => viewSettings(main)).catch(() => toast("פתח את תפריט ההרשאות של העמוד ב-claude.ai")); }
     });
     $("#testSpeak").onclick = () => { if (!E.speak("שלום, זו בדיקת הקראה של השאלות.")) toast("הקראה לא זמינה כאן"); };
+    $("#saveGroq").onclick = () => {
+      const k = $("#groqKey").value.trim();
+      if (k && !k.startsWith("gsk_")) { toast("מפתח Groq מתחיל ב-gsk_"); return; }
+      s.groqKey = k; s.sttEngine = $("#stt").value; E.save(); toast("נשמר"); viewSettings(main);
+    };
     $("#saveAi").onclick = () => { s.provider = $("#prov").value; s.apiKey = $("#key").value.trim(); s.model = $("#model").value; E.save(); toast("נשמר"); };
     $("#keepAudio").onchange = e => { s.keepAudio = e.target.checked; E.save(); };
     $("#qsec").onchange = e => { s.qSeconds = Math.max(30, Math.min(600, +e.target.value || 120)); E.save(); };

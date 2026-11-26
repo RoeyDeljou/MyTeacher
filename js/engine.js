@@ -9,7 +9,7 @@
     attempts: {},       // id -> [{ts, text, code, mode, dur, score, src, fb}]
     sessions: [],       // [{ts, stage, items:[{id, score}], avg}]
     cm: { done: {}, notes: "" },
-    settings: { apiKey: "", model: "claude-opus-5-5", provider: "auto", keepAudio: true, theme: "system", qSeconds: 120 }
+    settings: { apiKey: "", groqKey: "", sttEngine: "auto", model: "claude-opus-5-5", provider: "auto", keepAudio: true, theme: "system", qSeconds: 120 }
   });
   let state = defaults();
   function load() {
@@ -28,16 +28,16 @@
     return state;
   }
   function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* storage unavailable */ } }
-  function exportJSON() { const s = JSON.parse(JSON.stringify(state)); s.settings.apiKey = ""; return JSON.stringify(s); }
+  function exportJSON() { const s = JSON.parse(JSON.stringify(state)); s.settings.apiKey = ""; s.settings.groqKey = ""; return JSON.stringify(s); }
   function importJSON(txt) {
     const s = JSON.parse(txt);
     if (!s || typeof s !== "object" || !s.attempts) throw new Error("bad");
-    const key = state.settings.apiKey;
+    const key = state.settings.apiKey, gk = state.settings.groqKey;
     state = Object.assign(defaults(), s);
-    state.settings = Object.assign(defaults().settings, s.settings || {}, { apiKey: key });
+    state.settings = Object.assign(defaults().settings, s.settings || {}, { apiKey: key, groqKey: gk });
     save();
   }
-  function reset() { const key = state.settings.apiKey; state = defaults(); state.settings.apiKey = key; save(); }
+  function reset() { const key = state.settings.apiKey, gk = state.settings.groqKey; state = defaults(); state.settings.apiKey = key; state.settings.groqKey = gk; save(); }
 
   function addAttempt(id, a) { (state.attempts[id] = state.attempts[id] || []).push(a); save(); }
   function best(id) { const a = state.attempts[id]; if (!a || !a.length) return null; return Math.max(...a.map(x => x.score ?? 0)); }
@@ -307,6 +307,25 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
   let srBroken = false;
+  /* Whisper (Groq) דרך פונקציית השרת /api/transcribe */
+  const WHISPER_PROMPT = "ריאיון עבודה למשרת Unity Developer ב-Moon Active. מונחים: Unity, C#, MonoBehaviour, Coroutine, async/await, Task, CancellationToken, Addressables, ScriptableObject, Object Pooling, Garbage Collection, GC Alloc, Profiler, Draw Calls, Batching, Canvas, Prefab, Singleton, Events, Dependency Injection, Server Authoritative, Idempotency, Claude Code, Cursor, LLM, Agent, MCP, RAG, Firebase, Coin Master, Space Roads, AddForce, Bagira.";
+  function whisperReady() { return !IN_CLAUDE && state.settings.sttEngine !== "browser" && /^gsk_/.test(state.settings.groqKey || "") && !!(navigator.mediaDevices && window.MediaRecorder) && location.protocol.startsWith("http"); }
+  async function transcribe(blob) {
+    const res = await fetch("api/transcribe", {
+      method: "POST",
+      headers: { "content-type": blob.type || "audio/webm", "x-groq-key": state.settings.groqKey, "x-model": "whisper-large-v3", "x-prompt": encodeURIComponent(WHISPER_PROMPT) },
+      body: blob
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(data.error || "stt"), { code: data.error, status: res.status, detail: data.message });
+    return (data.text || "").trim();
+  }
+  function pickMime() {
+    if (!window.MediaRecorder || !MediaRecorder.isTypeSupported) return "";
+    for (const t of ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"]) if (MediaRecorder.isTypeSupported(t)) return t;
+    return "";
+  }
+
   class Recorder {
     constructor({ onText, onInterim, onState }) {
       this.onText = onText; this.onInterim = onInterim; this.onState = onState;
@@ -314,8 +333,43 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       this.mode = null; this.startedAt = 0; this.elapsed = 0;
     }
     static support() {
-      if (IN_CLAUDE) return { dictation: !!dictation, speech: false, media: false };
-      return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder) };
+      if (IN_CLAUDE) return { dictation: !!dictation, speech: false, media: false, whisper: false };
+      return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder), whisper: whisperReady() };
+    }
+    /* הקלטה מלאה ותמלול אחרי עצירה */
+    async startWhisper() {
+      this.mode = "whisper";
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      } catch (e) { this.active = false; this.finished = true; this.onState("error", "denied"); return; }
+      if (!this.active) { this.stream.getTracks().forEach(t => t.stop()); return; }
+      const mime = pickMime();
+      try { this.mr = new MediaRecorder(this.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
+      catch (e) { this.mr = new MediaRecorder(this.stream); }
+      this.mr.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
+      this.mr.onstop = () => {
+        this.stream.getTracks().forEach(t => t.stop());
+        const blob = new Blob(this.chunks, { type: (this.mr.mimeType || mime || "audio/webm").split(";")[0] });
+        this.lastBlob = blob;
+        if (this.audioUrl) URL.revokeObjectURL(this.audioUrl);
+        this.audioUrl = URL.createObjectURL(blob);
+        this.onState("audio", this.audioUrl);
+        this.runTranscribe(blob);
+      };
+      this.mr.start(1000);
+      this.onState("on");
+    }
+    async runTranscribe(blob) {
+      this.onState("transcribing");
+      try {
+        const text = await transcribe(blob || this.lastBlob);
+        if (text) this.onText(text);
+        this.finished = true; this.onInterim("");
+        this.onState("off", text ? "transcribed" : "empty");
+      } catch (e) {
+        this.finished = true;
+        this.onState("off", "stt-" + (e.code || "error") + (e.status ? ":" + e.status : ""));
+      }
     }
     async start() {
       if (this.active) return;
@@ -341,6 +395,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         return;
       }
       if (IN_CLAUDE) { this.active = false; this.onState("error", "claude-frame"); return; }
+      if (whisperReady()) { this.startWhisper(); return; }
       if (SR && !srBroken) {
         this.mode = "speech";
         try { this.startRecognition(); } catch (e) { this.active = false; this.onState("error", "unsupported"); return; }   // קודם התמלול – עוד בתוך הלחיצה (חשוב ב-iPhone)
@@ -437,6 +492,12 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       clearTimeout(this.restartT);
       if (wasActive) this.elapsed += (performance.now() - this.startedAt) / 1000;
       if (this.mode === "dictation") { dictation.stop().catch(() => { }); setTimeout(() => this.finish(), 1500); return; }
+      if (this.mode === "whisper") {
+        if (this.mr && this.mr.state !== "inactive") { try { this.mr.stop(); } catch (e) { this.finish(); } }
+        else if (this.stream) { this.stream.getTracks().forEach(t => t.stop()); this.finish(); }
+        else this.finish();
+        return;
+      }
       const r = this.rec;
       if (r) {
         try { r.stop(); } catch (e) { }
@@ -484,7 +545,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     load, save, get state() { return state; }, exportJSON, importJSON, reset,
     addAttempt, best, last, evaluate, sessionSummary, providerAvailable, initSample, initDictation,
     Recorder, speak, stopSpeak, coverage, words, fillerCount,
-    inClaude: IN_CLAUDE, isIOS: IS_IOS,
+    inClaude: IN_CLAUDE, isIOS: IS_IOS, whisperReady,
     standalone: !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true,
     async diag() {
       await initDictation();
