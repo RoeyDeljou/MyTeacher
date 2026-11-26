@@ -331,7 +331,7 @@
       <button class="btn primary block" id="evalBtn">${icon("spark")} קבל משוב</button>
     </section>
     <div id="fb"></div>
-    <details class="card flat" id="peek"><summary>הצצה לנקודות המפתח (עדיף אחרי שעונים)</summary>
+    <details class="card flat" id="peek"><summary>${it.k ? "הצצה לנקודות המפתח (עדיף אחרי שעונים)" : "הצצה למה שמראיין רוצה לשמוע (עדיף אחרי שעונים)"}</summary>
       <ul class="points">${(it.p || []).map(p => `<li class="miss"><span class="ic">•</span><span>${esc(p[0])}</span></li>`).join("")}</ul>
       ${it.t ? `<p class="note">${esc(it.t)}</p>` : ""}
     </details>
@@ -403,9 +403,9 @@
       ${fb.corrections && fb.corrections.length ? `<div class="fb-sec"><h3>תיקונים טכניים</h3>${fb.corrections.map(c => `<div class="fix"><b>${esc(c.issue)}</b>${c.fix ? `<span>${esc(c.fix)}</span>` : ""}</div>`).join("")}</div>` : ""}
       ${fb.src !== "offline" && fb.missing && fb.missing.length ? `<div class="fb-sec"><h3>מה חסר</h3><ul>${fb.missing.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
 
-      ${fb.coverage && fb.coverage.length ? `<div class="fb-sec"><h3>נקודות המפתח שמראיין יחפש</h3>
+      ${fb.coverage && fb.coverage.length ? `<div class="fb-sec"><h3>${it.k ? "נקודות המפתח שמראיין יחפש" : "מה מראיין רוצה לשמוע ממך – רעיונות ודרך חשיבה, לא מונחים"}</h3>
         <ul class="points" id="cov">${fb.coverage.map((c, i) => `<li class="${c.hit ? "hit" : "miss"}"><span class="ic">${c.hit ? "✓" : "–"}</span><span>${esc(c.label)}</span></li>`).join("")}</ul>
-        ${fb.src === "offline" ? `<p class="small muted">✓ = הזכרת מילה שקשורה לנקודה. לא בטוח שההסבר נכון. בדוק את עצמך מול הרשימה.</p>` : ""}
+        ${fb.src === "offline" ? `<p class="small muted">✓ = נראה שהתייחסת לרעיון הזה. ההערכה הבסיסית מזהה מילים בלבד, ולכן היא עלולה לפספס רעיון שתיארת במילים אחרות. בדוק את עצמך מול הרשימה.</p>` : ""}
       </div>` : ""}
 
       ${fb.interviewer_expects ? `<div class="fb-sec"><h3>מה מראיין מנוסה מצפה לשמוע</h3><p>${esc(fb.interviewer_expects)}</p></div>` : ""}
@@ -735,7 +735,7 @@
   /* ───────── Boot ───────── */
   function boot() {
     E.load(); applyTheme();
-    if (E.state.justMigrated) { delete E.state.justMigrated; E.save(); setTimeout(() => toast("השאלות נוסחו מחדש בסגנון שיחה. התשובות והציונים הקודמים אופסו – מתחילים מחדש."), 600); }
+    if (E.state.justMigrated) { delete E.state.justMigrated; E.save(); setTimeout(() => toast("השאלות והציפיות עודכנו לסגנון ריאיון שיחה. התשובות והציונים הקודמים אופסו – מתחילים מחדש."), 600); }
     $("#nav").innerHTML = `<div class="row">
       <a href="#home" data-k="home">${icon("home")}<span>בית</span></a>
       <a href="#practice" data-k="practice">${icon("list")}<span>תרגול</span></a>
