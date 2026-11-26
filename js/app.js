@@ -34,6 +34,7 @@
   const qText = it => it.q || it.prompt;
   const catLabel = it => it.k ? D.stage2Kinds[it.k].he : (D.cats[it.c] ? D.cats[it.c].he : "");
   const scoreCls = s => s == null ? "" : s >= 8 ? "good" : s >= 6 ? "warn" : "bad";
+  const KB_TIP = "המיקרופון של הדפדפן חסום כאן. לחץ על אייקון המיקרופון 🎤 במקלדת של הטלפון (בתוך התיבה) ודבר – זה עובד בדיוק כמו הקלטה, והתמלול נכנס לתיבה.";
   const fmt = s => s == null ? "–" : (Math.round(s * 10) / 10).toString();
 
   function toast(msg) {
@@ -245,7 +246,7 @@
   function runQuestion(root, it, opts) {
     const isTech = !!it.k;
     const prevAttempts = E.state.attempts[it.id] || [];
-    let text = "", interimText = "", audioUrl = null, mode = "text", timerId = null, ctl = null, evaluated = null;
+    let kbStart = 0, text = "", interimText = "", audioUrl = null, mode = "text", timerId = null, ctl = null, evaluated = null;
     const openedAt = performance.now();
     const target = isTech ? (it.time || 10) * 60 : E.state.settings.qSeconds;
 
@@ -262,13 +263,21 @@
     });
 
     function recError(r) {
-      if (r === "denied" || r === "not_granted") return "אין הרשאה למיקרופון. אפשר להקליד, או להשתמש במיקרופון של המקלדת.";
+      if (r === "claude-frame" || r === "unavailable" || r === "unsupported") { keyboardMic(); return KB_TIP; }
+      if (r === "not_granted" && E.inClaude) { showPermBtn(); keyboardMic(); return "ההכתבה של claude.ai כבויה לעמוד הזה. אפשר להפעיל אותה בכפתור ההרשאות, או לענות עכשיו עם המיקרופון של המקלדת."; }
+      if (r === "denied" || r === "not_granted") { keyboardMic(); return "אין הרשאה למיקרופון. אפשר להפעיל אותה בהגדרות האתר בדפדפן, או לענות עם המיקרופון של המקלדת."; }
       if (r === "unsupported" || r === "unavailable") return "התמלול לא נתמך כאן. אפשר להקליד, או להשתמש במיקרופון של המקלדת בתוך התיבה.";
       if (r === "mic") return "לא הצלחתי לפתוח את המיקרופון.";
       if (r === "hidden") return "ההקלטה נעצרה כי המסך הוסתר.";
       return "ההקלטה נעצרה.";
     }
 
+    function keyboardMic() { const t = $("#ans", root); if (t) { t.focus(); t.scrollIntoView({ block: "center", behavior: "smooth" }); } }
+    function showPermBtn() {
+      const b = $("#permBtn", root); if (!b) return;
+      b.hidden = false;
+      b.onclick = () => E.openPermissions().then(() => { $("#recHint", root).textContent = "אם הפעלת הכתבה, לחץ שוב על המיקרופון."; }).catch(() => toast("פתח את תפריט ההרשאות של העמוד ב-claude.ai"));
+    }
     const sup = E.Recorder.support();
     const canRec = sup.dictation || sup.speech || sup.media;
     root.innerHTML = `
@@ -286,10 +295,11 @@
 
     <section class="card">
       <div class="rec">
-        <button class="recbtn" id="recBtn" aria-label="התחל הקלטה" ${canRec ? "" : "disabled"}>${icon("mic")}</button>
+        <button class="recbtn" id="recBtn" aria-label="${canRec ? "התחל הקלטה" : "ענה בעל פה עם מיקרופון המקלדת"}">${icon("mic")}</button>
         <div class="stack" style="gap:2px;flex:1;min-width:0">
           <span class="timer" id="timer">00:00</span>
-          <span class="small muted" id="recHint">${canRec ? "לחץ והתחל לדבר. התמלול יופיע בתיבה." : "הקלטה לא זמינה כאן. הקלד את התשובה, או השתמש במיקרופון של המקלדת."}</span>
+          <span class="small muted" id="recHint">${canRec ? "לחץ והתחל לדבר. התמלול יופיע בתיבה." : KB_TIP}</span>
+          <button class="btn sm ghost" id="permBtn" hidden>פתח הרשאות של העמוד</button>
         </div>
       </div>
       <p class="interim" id="interim" aria-live="polite"></p>
@@ -310,13 +320,14 @@
     ta.addEventListener("input", () => { text = ta.value; });
     $("#speakBtn", root).onclick = () => { if (!E.speak(qText(it))) toast("הקראה לא נתמכת בדפדפן הזה"); };
     $("#recBtn", root).onclick = () => {
+      if (!E.Recorder.support().dictation && !E.Recorder.support().speech && !E.Recorder.support().media) { keyboardMic(); $("#recHint", root).textContent = KB_TIP; mode = "voice"; if (!kbStart) kbStart = performance.now(); startTimer(); return; }
       if (rec.active) { rec.stop(); stopTimer(); }
       else { rec.start(); startTimer(); }          // start נקרא ישירות מהלחיצה
     };
     function startTimer() {
       stopTimer();
       timerId = setInterval(() => {
-        const s = isTech ? (performance.now() - openedAt) / 1000 : rec.seconds();
+        const s = isTech ? (performance.now() - openedAt) / 1000 : kbStart ? (performance.now() - kbStart) / 1000 : rec.seconds();
         const el = $("#timer", root); if (!el) return;
         el.textContent = String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(Math.floor(s % 60)).padStart(2, "0");
         el.classList.toggle("over", s > target);
@@ -333,7 +344,7 @@
       const btn = $("#evalBtn", root);
       btn.disabled = true; btn.innerHTML = `<span class="spinner"></span> ${E.providerAvailable() === "offline" ? "בודק…" : "המראיין קורא את התשובה…"}`;
       ctl = new AbortController();
-      const meta = { stage: opts.stage, mode, dur: mode === "voice" ? rec.seconds() : 0 };
+      const meta = { stage: opts.stage, mode, dur: mode === "voice" ? (kbStart ? (performance.now() - kbStart) / 1000 : rec.seconds()) : 0 };
       let fb;
       try { fb = await E.evaluate(it, answer, meta, ctl.signal); }
       catch (e) { btn.disabled = false; btn.innerHTML = `${icon("spark")} קבל משוב`; return; }
@@ -346,7 +357,7 @@
       $("#fb", root).scrollIntoView({ behavior: "smooth", block: "start" });
     };
 
-    cleanupPush(() => { if (rec.active) rec.stop(); if (timerId) clearInterval(timerId); if (ctl) ctl.abort(); if ("speechSynthesis" in window) speechSynthesis.cancel(); });
+    cleanupPush(() => { if (rec.active) rec.stop(); if (timerId) clearInterval(timerId); if (ctl) ctl.abort(); E.stopSpeak(); });
   }
   function slimFb(fb) { const { coverage, metrics, ...rest } = fb; return rest; }
   function cleanupPush(fn) { const prev = cleanup; cleanup = () => { if (prev) prev(); fn(); }; }
@@ -600,6 +611,11 @@
       <button class="btn primary" id="saveAi">שמור</button>
     </section>
     <section class="card">
+      <h2>בדיקת מיקרופון והקראה</h2>
+      <div id="diag" class="small muted">בודק…</div>
+      <div class="row"><button class="btn sm" id="testSpeak">${icon("spk")} נסה הקראה</button><button class="btn sm ghost" id="permOpen" hidden>פתח הרשאות של העמוד</button></div>
+    </section>
+    <section class="card">
       <h2>הקלטה ותצוגה</h2>
       <label class="check"><input type="checkbox" id="keepAudio" ${s.keepAudio ? "checked" : ""}><span>שמור הקלטת קול לשמיעה חוזרת (בחלק מהמכשירים זה מתנגש עם התמלול, ואז ההקלטה תכובה אוטומטית)</span></label>
       <label class="field" for="qsec">יעד זמן לתשובה בעל פה (שניות)<input id="qsec" type="number" min="30" max="600" step="10" value="${s.qSeconds}"></label>
@@ -618,6 +634,17 @@
       <h2>התקנה בטלפון</h2>
       <p class="small">Android (Chrome): תפריט ⋮ ← "הוספה למסך הבית". iPhone (Safari): כפתור השיתוף ← "הוספה למסך הבית". אחרי ההתקנה האפליקציה עובדת גם בלי רשת. הערכת AI צריכה רשת.</p>
     </section>`;
+    E.diag().then(d => {
+      const box = $("#diag"); if (!box) return;
+      const yes = v => v ? "✓ זמין" : "✗ לא זמין";
+      const lines = d.inClaude
+        ? [`האפליקציה פתוחה בתוך claude.ai.`, `הכתבה של claude.ai: ${yes(d.dictation)}${d.dictationState ? " (" + ({ granted: "מאושר", prompt: "תתבקש לאשר בלחיצה הראשונה", denied: "נדחה – אפשר להפעיל בהרשאות", unavailable: "לא זמין" }[d.dictationState] || d.dictationState) + ")" : ""}`, `הקראה של claude.ai: ${yes(d.tts)}`,
+           d.dictation ? "" : "במכשיר הזה claude.ai לא מאפשר מיקרופון לעמוד. הדרך לענות בעל פה: מיקרופון המקלדת בתוך תיבת התשובה, או גרסת האתר העצמאית."]
+        : [`תמלול דיבור בדפדפן: ${yes(d.speechAPI)}`, `הקראה בדפדפן: ${yes(d.synth)}`];
+      box.innerHTML = lines.filter(Boolean).map(l => `<p>${esc(l)}</p>`).join("");
+      if (d.inClaude && d.dictationState === "denied") { const b = $("#permOpen"); b.hidden = false; b.onclick = () => E.openPermissions().then(() => viewSettings(main)).catch(() => toast("פתח את תפריט ההרשאות של העמוד ב-claude.ai")); }
+    });
+    $("#testSpeak").onclick = () => { if (!E.speak("שלום, זו בדיקת הקראה של השאלות.")) toast("הקראה לא זמינה כאן"); };
     $("#saveAi").onclick = () => { s.provider = $("#prov").value; s.apiKey = $("#key").value.trim(); s.model = $("#model").value; E.save(); toast("נשמר"); };
     $("#keepAudio").onchange = e => { s.keepAudio = e.target.checked; E.save(); };
     $("#qsec").onchange = e => { s.qSeconds = Math.max(30, Math.min(600, +e.target.value || 120)); E.save(); };

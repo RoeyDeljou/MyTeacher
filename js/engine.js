@@ -183,12 +183,16 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     })();
     return samplePromise;
   }
-  let dictation = null, dictationPromise = null;
+  const IN_CLAUDE = !!(window.claude && typeof window.claude.use === "function");
+  let dictation = null, dictationPromise = null, tts = null, perms = null;
   function initDictation() {
     if (dictationPromise) return dictationPromise;
     dictationPromise = (async () => {
       try {
-        if (window.claude && typeof window.claude.use === "function") dictation = await window.claude.use("dictation");
+        if (IN_CLAUDE) {
+          const [d, t, p] = await Promise.all(["dictation", "tts", "permissions"].map(n => window.claude.use(n).catch(() => null)));
+          dictation = d; tts = t; perms = p;
+        }
       } catch (e) { dictation = null; }
       return dictation;
     })();
@@ -308,7 +312,8 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       this.mode = null; this.startedAt = 0; this.elapsed = 0;
     }
     static support() {
-      return { dictation: !!dictation, speech: !!SR, media: !!(navigator.mediaDevices && window.MediaRecorder) };
+      if (IN_CLAUDE) return { dictation: !!dictation, speech: false, media: false };
+      return { dictation: false, speech: !!SR, media: !!(navigator.mediaDevices && window.MediaRecorder) };
     }
     async start() {
       this.active = true; this.startedAt = performance.now(); this.chunks = [];
@@ -331,6 +336,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         this.onState("on");
         return;
       }
+      if (IN_CLAUDE) { this.active = false; this.onState("error", "claude-frame"); return; }
       if (SR) {
         this.mode = "speech";
         if (state.settings.keepAudio && navigator.mediaDevices && window.MediaRecorder) {
@@ -414,6 +420,17 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
 
   /* ───────── Speak question (TTS) ───────── */
   function speak(text) {
+    if (tts) {
+      tts.speak(text, { language: "he" }).catch(e => {
+        if (e && e.code === "unavailable") tts.speak(text).catch(() => browserSpeak(text));
+        else if (e && e.code !== "viewer_stopped") browserSpeak(text);
+      });
+      return true;
+    }
+    return browserSpeak(text);
+  }
+  function stopSpeak() { try { tts && tts.stop(); } catch (e) { } if ("speechSynthesis" in window) speechSynthesis.cancel(); }
+  function browserSpeak(text) {
     if (!("speechSynthesis" in window)) return false;
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -427,6 +444,14 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
   window.Engine = {
     load, save, get state() { return state; }, exportJSON, importJSON, reset,
     addAttempt, best, last, evaluate, sessionSummary, providerAvailable, initSample, initDictation,
-    Recorder, speak, coverage, words, fillerCount
+    Recorder, speak, stopSpeak, coverage, words, fillerCount,
+    inClaude: IN_CLAUDE,
+    async diag() {
+      await initDictation();
+      let mic = null;
+      try { if (perms && dictation) mic = await perms.state("dictation"); } catch (e) { }
+      return { inClaude: IN_CLAUDE, dictation: !!dictation, dictationState: mic, tts: !!tts, speechAPI: !!SR, synth: "speechSynthesis" in window };
+    },
+    async openPermissions() { if (!perms) throw new Error("unavailable"); await perms.manage(); }
   };
 })();
