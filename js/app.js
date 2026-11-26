@@ -263,9 +263,10 @@
     });
 
     function recError(r) {
+      if (r === "ios-dictation") { keyboardMic(); return "ה-iPhone לא מאפשר תמלול כרגע. בדוק בהגדרות: כללי ← מקלדת ← \"הפעל הכתבה\" מופעל, ו-Siri מופעל. בינתיים: לחץ על 🎤 במקלדת בתוך התיבה ודבר."; }
       if (r === "claude-frame" || r === "unavailable" || r === "unsupported") { keyboardMic(); return KB_TIP; }
       if (r === "not_granted" && E.inClaude) { showPermBtn(); keyboardMic(); return "ההכתבה של claude.ai כבויה לעמוד הזה. אפשר להפעיל אותה בכפתור ההרשאות, או לענות עכשיו עם המיקרופון של המקלדת."; }
-      if (r === "denied" || r === "not_granted") { keyboardMic(); return "אין הרשאה למיקרופון. אפשר להפעיל אותה בהגדרות האתר בדפדפן, או לענות עם המיקרופון של המקלדת."; }
+      if (r === "denied" || r === "not_granted") { keyboardMic(); return E.isIOS ? "אין הרשאה למיקרופון. ב-iPhone: הגדרות ← Safari ← מיקרופון ← \"שאל\" או \"אפשר\". בינתיים אפשר לענות עם 🎤 של המקלדת." : "אין הרשאה למיקרופון. אפשר להפעיל אותה בהגדרות האתר בדפדפן, או לענות עם המיקרופון של המקלדת."; }
       if (r === "unsupported" || r === "unavailable") return "התמלול לא נתמך כאן. אפשר להקליד, או להשתמש במיקרופון של המקלדת בתוך התיבה.";
       if (r === "mic") return "לא הצלחתי לפתוח את המיקרופון.";
       if (r === "hidden") return "ההקלטה נעצרה כי המסך הוסתר.";
@@ -632,7 +633,9 @@
     </section>
     <section class="card">
       <h2>התקנה בטלפון</h2>
-      <p class="small">Android (Chrome): תפריט ⋮ ← "הוספה למסך הבית". iPhone (Safari): כפתור השיתוף ← "הוספה למסך הבית". אחרי ההתקנה האפליקציה עובדת גם בלי רשת. הערכת AI צריכה רשת.</p>
+      <p class="small">iPhone: לפתוח את הכתובת ב-Safari ← כפתור השיתוף ← "הוסף למסך הבית". Android (Chrome): תפריט ⋮ ← "הוספה למסך הבית".</p>
+      <p class="small">חשוב ב-iPhone: האפליקציה שבמסך הבית שומרת נתונים בנפרד מ-Safari. את מפתח ה-API צריך להזין שוב בתוך האפליקציה המותקנת, ואת ההתקדמות אפשר להעביר עם "העתק גיבוי".</p>
+      <p class="small">אחרי ההתקנה האפליקציה נפתחת גם בלי רשת. הערכת AI ותמלול צריכים רשת.</p>
     </section>`;
     E.diag().then(d => {
       const box = $("#diag"); if (!box) return;
@@ -640,7 +643,8 @@
       const lines = d.inClaude
         ? [`האפליקציה פתוחה בתוך claude.ai.`, `הכתבה של claude.ai: ${yes(d.dictation)}${d.dictationState ? " (" + ({ granted: "מאושר", prompt: "תתבקש לאשר בלחיצה הראשונה", denied: "נדחה – אפשר להפעיל בהרשאות", unavailable: "לא זמין" }[d.dictationState] || d.dictationState) + ")" : ""}`, `הקראה של claude.ai: ${yes(d.tts)}`,
            d.dictation ? "" : "במכשיר הזה claude.ai לא מאפשר מיקרופון לעמוד. הדרך לענות בעל פה: מיקרופון המקלדת בתוך תיבת התשובה, או גרסת האתר העצמאית."]
-        : [`תמלול דיבור בדפדפן: ${yes(d.speechAPI)}`, `הקראה בדפדפן: ${yes(d.synth)}`];
+        : [`תמלול דיבור בדפדפן: ${yes(d.speechAPI)}`, `הקראה בדפדפן: ${yes(d.synth)}`, E.isIOS ? (E.standalone ? "פתוח כאפליקציה ממסך הבית." : "פתוח ב-Safari. להתקנה: שיתוף ← \"הוסף למסך הבית\".") : "",
+           E.isIOS ? "ב-iPhone ההקלטה לשמיעה חוזרת כבויה כי המיקרופון לא מתחלק בין התמלול להקלטה." : ""];
       box.innerHTML = lines.filter(Boolean).map(l => `<p>${esc(l)}</p>`).join("");
       if (d.inClaude && d.dictationState === "denied") { const b = $("#permOpen"); b.hidden = false; b.onclick = () => E.openPermissions().then(() => viewSettings(main)).catch(() => toast("פתח את תפריט ההרשאות של העמוד ב-claude.ai")); }
     });

@@ -305,6 +305,8 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
 
   /* ───────── Recording & transcription ───────── */
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  let srBroken = false;
   class Recorder {
     constructor({ onText, onInterim, onState }) {
       this.onText = onText; this.onInterim = onInterim; this.onState = onState;
@@ -313,7 +315,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     }
     static support() {
       if (IN_CLAUDE) return { dictation: !!dictation, speech: false, media: false };
-      return { dictation: false, speech: !!SR, media: !!(navigator.mediaDevices && window.MediaRecorder) };
+      return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder) };
     }
     async start() {
       this.active = true; this.startedAt = performance.now(); this.chunks = [];
@@ -337,18 +339,20 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         return;
       }
       if (IN_CLAUDE) { this.active = false; this.onState("error", "claude-frame"); return; }
-      if (SR) {
+      if (SR && !srBroken) {
         this.mode = "speech";
-        if (state.settings.keepAudio && navigator.mediaDevices && window.MediaRecorder) {
+        try { this.startRecognition(); } catch (e) { this.active = false; this.onState("error", "unsupported"); return; }   // קודם התמלול – עוד בתוך הלחיצה (חשוב ב-iPhone)
+        this.onState("on");
+        // הקלטת קול במקביל רק כשאין התנגשות ידועה (ב-iOS המיקרופון לא מתחלק בין השניים)
+        if (state.settings.keepAudio && !IS_IOS && navigator.mediaDevices && window.MediaRecorder) {
           try {
             this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (!this.active) { this.stream.getTracks().forEach(t => t.stop()); return; }
             this.mr = new MediaRecorder(this.stream);
             this.mr.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
             this.mr.start();
           } catch (e) { this.mr = null; }
         }
-        this.startRecognition();
-        this.onState("on");
         return;
       }
       if (navigator.mediaDevices && window.MediaRecorder) {
@@ -367,25 +371,38 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     startRecognition() {
       const r = new SR();
       r.lang = "he-IL"; r.continuous = true; r.interimResults = true;
+      const emitted = new Set();               // ב-Safari אותה תוצאה סופית יכולה לחזור – לא לכפול
+      this.pending = "";
       r.onresult = ev => {
         let interim = "";
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
           const res = ev.results[i];
-          if (res.isFinal) this.onText(res[0].transcript);
+          if (res.isFinal) { if (!emitted.has(i)) { emitted.add(i); this.onText(res[0].transcript); } }
           else interim += res[0].transcript;
         }
+        this.pending = interim;
         this.onInterim(interim);
       };
       r.onerror = ev => {
+        this.lastError = ev.error;
         if (ev.error === "audio-capture" && this.mr) {      // המיקרופון תפוס ע"י ההקלטה – ממשיכים בלי הקלטה
-          this.stopMedia(false); state.settings.keepAudio = false; save();
+          this.stopMedia(false); this.mr = null; state.settings.keepAudio = false; save();
         } else if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-          this.active = false; this.onState("error", "denied");
+          this.active = false;
+          if (ev.error === "service-not-allowed") srBroken = true;   // בדרך כלל: Dictation/Siri כבויים ב-iOS
+          this.onState("error", ev.error === "service-not-allowed" ? "ios-dictation" : "denied");
         }
       };
-      r.onend = () => { if (this.active) { try { r.start(); } catch (e) { } } else this.finish(); };
+      r.onend = () => {
+        if (this.pending) { this.onText(this.pending); this.pending = ""; }   // לא לאבד טקסט שלא סומן סופי
+        if (this.active) {
+          try { this.startRecognition(); return; }          // Safari עוצר אחרי שקט – ממשיכים
+          catch (e) { this.active = false; }
+        }
+        this.finish(this.lastError);
+      };
       this.rec = r;
-      try { r.start(); } catch (e) { }
+      r.start();
     }
     stopMedia(keep) {
       if (this.mr && this.mr.state !== "inactive") {
@@ -445,7 +462,8 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     load, save, get state() { return state; }, exportJSON, importJSON, reset,
     addAttempt, best, last, evaluate, sessionSummary, providerAvailable, initSample, initDictation,
     Recorder, speak, stopSpeak, coverage, words, fillerCount,
-    inClaude: IN_CLAUDE,
+    inClaude: IN_CLAUDE, isIOS: IS_IOS,
+    standalone: !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true,
     async diag() {
       await initDictation();
       let mic = null;

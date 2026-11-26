@@ -1,10 +1,10 @@
 /* Service Worker: שומר את קבצי האפליקציה כדי שתעבוד גם בלי רשת. */
-const CACHE = "moonprep-v1";
+const CACHE = "moonprep-v2";
 const ASSETS = [
   "./", "./index.html", "./manifest.webmanifest", "./css/app.css",
   "./js/data-profile.js", "./js/data-stage1.js", "./js/data-stage2.js", "./js/data-stage3.js",
   "./js/data-glossary.js", "./js/engine.js", "./js/app.js",
-  "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-maskable-512.png"
+  "./icons/icon.svg", "./icons/icon-192.png", "./icons/icon-512.png", "./icons/icon-maskable-512.png", "./icons/apple-touch-icon.png"
 ];
 
 self.addEventListener("install", e => {

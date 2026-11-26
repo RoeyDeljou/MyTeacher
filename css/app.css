@@ -213,3 +213,6 @@ label.field input, label.field select, label.field textarea { border: 1px solid 
 hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%; }
 .job li { margin-bottom: 4px; }
 .kbd { font-family: var(--f-mono); font-size: .8rem; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
+
+/* iOS: שדות מתחת ל-16px גורמים לזום אוטומטי בפוקוס */
+@media (pointer: coarse) { textarea.answer.codeed, .search, input, select, textarea { font-size: 16px; } }

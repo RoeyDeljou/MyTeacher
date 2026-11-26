@@ -218,6 +218,9 @@ hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%
 .job li { margin-bottom: 4px; }
 .kbd { font-family: var(--f-mono); font-size: .8rem; background: var(--surface-2); padding: 1px 6px; border-radius: 6px; }
 
+/* iOS: שדות מתחת ל-16px גורמים לזום אוטומטי בפוקוס */
+@media (pointer: coarse) { textarea.answer.codeed, .search, input, select, textarea { font-size: 16px; } }
+
 </style>
 <div dir="rtl" lang="he">
 
@@ -2978,6 +2981,8 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
 
   /* ───────── Recording & transcription ───────── */
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  let srBroken = false;
   class Recorder {
     constructor({ onText, onInterim, onState }) {
       this.onText = onText; this.onInterim = onInterim; this.onState = onState;
@@ -2986,7 +2991,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     }
     static support() {
       if (IN_CLAUDE) return { dictation: !!dictation, speech: false, media: false };
-      return { dictation: false, speech: !!SR, media: !!(navigator.mediaDevices && window.MediaRecorder) };
+      return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder) };
     }
     async start() {
       this.active = true; this.startedAt = performance.now(); this.chunks = [];
@@ -3010,18 +3015,20 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         return;
       }
       if (IN_CLAUDE) { this.active = false; this.onState("error", "claude-frame"); return; }
-      if (SR) {
+      if (SR && !srBroken) {
         this.mode = "speech";
-        if (state.settings.keepAudio && navigator.mediaDevices && window.MediaRecorder) {
+        try { this.startRecognition(); } catch (e) { this.active = false; this.onState("error", "unsupported"); return; }   // קודם התמלול – עוד בתוך הלחיצה (חשוב ב-iPhone)
+        this.onState("on");
+        // הקלטת קול במקביל רק כשאין התנגשות ידועה (ב-iOS המיקרופון לא מתחלק בין השניים)
+        if (state.settings.keepAudio && !IS_IOS && navigator.mediaDevices && window.MediaRecorder) {
           try {
             this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            if (!this.active) { this.stream.getTracks().forEach(t => t.stop()); return; }
             this.mr = new MediaRecorder(this.stream);
             this.mr.ondataavailable = e => { if (e.data && e.data.size) this.chunks.push(e.data); };
             this.mr.start();
           } catch (e) { this.mr = null; }
         }
-        this.startRecognition();
-        this.onState("on");
         return;
       }
       if (navigator.mediaDevices && window.MediaRecorder) {
@@ -3040,25 +3047,38 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     startRecognition() {
       const r = new SR();
       r.lang = "he-IL"; r.continuous = true; r.interimResults = true;
+      const emitted = new Set();               // ב-Safari אותה תוצאה סופית יכולה לחזור – לא לכפול
+      this.pending = "";
       r.onresult = ev => {
         let interim = "";
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
           const res = ev.results[i];
-          if (res.isFinal) this.onText(res[0].transcript);
+          if (res.isFinal) { if (!emitted.has(i)) { emitted.add(i); this.onText(res[0].transcript); } }
           else interim += res[0].transcript;
         }
+        this.pending = interim;
         this.onInterim(interim);
       };
       r.onerror = ev => {
+        this.lastError = ev.error;
         if (ev.error === "audio-capture" && this.mr) {      // המיקרופון תפוס ע"י ההקלטה – ממשיכים בלי הקלטה
-          this.stopMedia(false); state.settings.keepAudio = false; save();
+          this.stopMedia(false); this.mr = null; state.settings.keepAudio = false; save();
         } else if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-          this.active = false; this.onState("error", "denied");
+          this.active = false;
+          if (ev.error === "service-not-allowed") srBroken = true;   // בדרך כלל: Dictation/Siri כבויים ב-iOS
+          this.onState("error", ev.error === "service-not-allowed" ? "ios-dictation" : "denied");
         }
       };
-      r.onend = () => { if (this.active) { try { r.start(); } catch (e) { } } else this.finish(); };
+      r.onend = () => {
+        if (this.pending) { this.onText(this.pending); this.pending = ""; }   // לא לאבד טקסט שלא סומן סופי
+        if (this.active) {
+          try { this.startRecognition(); return; }          // Safari עוצר אחרי שקט – ממשיכים
+          catch (e) { this.active = false; }
+        }
+        this.finish(this.lastError);
+      };
       this.rec = r;
-      try { r.start(); } catch (e) { }
+      r.start();
     }
     stopMedia(keep) {
       if (this.mr && this.mr.state !== "inactive") {
@@ -3118,7 +3138,8 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     load, save, get state() { return state; }, exportJSON, importJSON, reset,
     addAttempt, best, last, evaluate, sessionSummary, providerAvailable, initSample, initDictation,
     Recorder, speak, stopSpeak, coverage, words, fillerCount,
-    inClaude: IN_CLAUDE,
+    inClaude: IN_CLAUDE, isIOS: IS_IOS,
+    standalone: !!(window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true,
     async diag() {
       await initDictation();
       let mic = null;
@@ -3397,9 +3418,10 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     });
 
     function recError(r) {
+      if (r === "ios-dictation") { keyboardMic(); return "ה-iPhone לא מאפשר תמלול כרגע. בדוק בהגדרות: כללי ← מקלדת ← \"הפעל הכתבה\" מופעל, ו-Siri מופעל. בינתיים: לחץ על 🎤 במקלדת בתוך התיבה ודבר."; }
       if (r === "claude-frame" || r === "unavailable" || r === "unsupported") { keyboardMic(); return KB_TIP; }
       if (r === "not_granted" && E.inClaude) { showPermBtn(); keyboardMic(); return "ההכתבה של claude.ai כבויה לעמוד הזה. אפשר להפעיל אותה בכפתור ההרשאות, או לענות עכשיו עם המיקרופון של המקלדת."; }
-      if (r === "denied" || r === "not_granted") { keyboardMic(); return "אין הרשאה למיקרופון. אפשר להפעיל אותה בהגדרות האתר בדפדפן, או לענות עם המיקרופון של המקלדת."; }
+      if (r === "denied" || r === "not_granted") { keyboardMic(); return E.isIOS ? "אין הרשאה למיקרופון. ב-iPhone: הגדרות ← Safari ← מיקרופון ← \"שאל\" או \"אפשר\". בינתיים אפשר לענות עם 🎤 של המקלדת." : "אין הרשאה למיקרופון. אפשר להפעיל אותה בהגדרות האתר בדפדפן, או לענות עם המיקרופון של המקלדת."; }
       if (r === "unsupported" || r === "unavailable") return "התמלול לא נתמך כאן. אפשר להקליד, או להשתמש במיקרופון של המקלדת בתוך התיבה.";
       if (r === "mic") return "לא הצלחתי לפתוח את המיקרופון.";
       if (r === "hidden") return "ההקלטה נעצרה כי המסך הוסתר.";
@@ -3766,7 +3788,9 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     </section>
     <section class="card">
       <h2>התקנה בטלפון</h2>
-      <p class="small">Android (Chrome): תפריט ⋮ ← "הוספה למסך הבית". iPhone (Safari): כפתור השיתוף ← "הוספה למסך הבית". אחרי ההתקנה האפליקציה עובדת גם בלי רשת. הערכת AI צריכה רשת.</p>
+      <p class="small">iPhone: לפתוח את הכתובת ב-Safari ← כפתור השיתוף ← "הוסף למסך הבית". Android (Chrome): תפריט ⋮ ← "הוספה למסך הבית".</p>
+      <p class="small">חשוב ב-iPhone: האפליקציה שבמסך הבית שומרת נתונים בנפרד מ-Safari. את מפתח ה-API צריך להזין שוב בתוך האפליקציה המותקנת, ואת ההתקדמות אפשר להעביר עם "העתק גיבוי".</p>
+      <p class="small">אחרי ההתקנה האפליקציה נפתחת גם בלי רשת. הערכת AI ותמלול צריכים רשת.</p>
     </section>`;
     E.diag().then(d => {
       const box = $("#diag"); if (!box) return;
@@ -3774,7 +3798,8 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       const lines = d.inClaude
         ? [`האפליקציה פתוחה בתוך claude.ai.`, `הכתבה של claude.ai: ${yes(d.dictation)}${d.dictationState ? " (" + ({ granted: "מאושר", prompt: "תתבקש לאשר בלחיצה הראשונה", denied: "נדחה – אפשר להפעיל בהרשאות", unavailable: "לא זמין" }[d.dictationState] || d.dictationState) + ")" : ""}`, `הקראה של claude.ai: ${yes(d.tts)}`,
            d.dictation ? "" : "במכשיר הזה claude.ai לא מאפשר מיקרופון לעמוד. הדרך לענות בעל פה: מיקרופון המקלדת בתוך תיבת התשובה, או גרסת האתר העצמאית."]
-        : [`תמלול דיבור בדפדפן: ${yes(d.speechAPI)}`, `הקראה בדפדפן: ${yes(d.synth)}`];
+        : [`תמלול דיבור בדפדפן: ${yes(d.speechAPI)}`, `הקראה בדפדפן: ${yes(d.synth)}`, E.isIOS ? (E.standalone ? "פתוח כאפליקציה ממסך הבית." : "פתוח ב-Safari. להתקנה: שיתוף ← \"הוסף למסך הבית\".") : "",
+           E.isIOS ? "ב-iPhone ההקלטה לשמיעה חוזרת כבויה כי המיקרופון לא מתחלק בין התמלול להקלטה." : ""];
       box.innerHTML = lines.filter(Boolean).map(l => `<p>${esc(l)}</p>`).join("");
       if (d.inClaude && d.dictationState === "denied") { const b = $("#permOpen"); b.hidden = false; b.onclick = () => E.openPermissions().then(() => viewSettings(main)).catch(() => toast("פתח את תפריט ההרשאות של העמוד ב-claude.ai")); }
     });
