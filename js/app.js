@@ -256,9 +256,9 @@
       onState: (s, extra) => {
         const b = $("#recBtn", root);
         if (s === "on") { mode = "voice"; b.classList.add("on", "stop"); b.innerHTML = icon("stop"); b.setAttribute("aria-label", "עצור הקלטה"); $("#recHint", root).textContent = "מקליט… דבר כמו בריאיון"; }
-        if (s === "off") { b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); b.setAttribute("aria-label", "התחל הקלטה"); $("#recHint", root).textContent = extra && extra !== "stopped" && extra !== "viewer_stopped" ? recError(extra) : "ההקלטה נעצרה. אפשר לתקן את התמלול ואז לבקש משוב."; }
+        if (s === "off") { stopTimer(); b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); b.setAttribute("aria-label", "התחל הקלטה"); $("#recHint", root).textContent = extra && extra !== "stopped" && extra !== "viewer_stopped" ? recError(extra) : "ההקלטה נעצרה. אפשר לתקן את התמלול ואז לבקש משוב."; }
         if (s === "audio") { audioUrl = extra; const a = $("#audioBox", root); a.innerHTML = `<p class="small muted">ההקלטה שלך – שמע את עצמך:</p><audio controls src="${extra}"></audio>`; }
-        if (s === "error") { $("#recHint", root).textContent = recError(extra); }
+        if (s === "error") { b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); stopTimer(); $("#recHint", root).textContent = recError(extra); }
       }
     });
 
@@ -270,6 +270,7 @@
       if (r === "unsupported" || r === "unavailable") return "התמלול לא נתמך כאן. אפשר להקליד, או להשתמש במיקרופון של המקלדת בתוך התיבה.";
       if (r === "mic") return "לא הצלחתי לפתוח את המיקרופון.";
       if (r === "hidden") return "ההקלטה נעצרה כי המסך הוסתר.";
+      if (r === "speech-ended") return "התמלול נעצר אחרי שקט. מה שנאמר נשמר בתיבה – לחץ שוב על המיקרופון כדי להמשיך.";
       return "ההקלטה נעצרה.";
     }
 
@@ -322,7 +323,7 @@
     $("#speakBtn", root).onclick = () => { if (!E.speak(qText(it))) toast("הקראה לא נתמכת בדפדפן הזה"); };
     $("#recBtn", root).onclick = () => {
       if (!E.Recorder.support().dictation && !E.Recorder.support().speech && !E.Recorder.support().media) { keyboardMic(); $("#recHint", root).textContent = KB_TIP; mode = "voice"; if (!kbStart) kbStart = performance.now(); startTimer(); return; }
-      if (rec.active) { rec.stop(); stopTimer(); }
+      if (rec.active || $("#recBtn", root).classList.contains("on")) { rec.stop(); stopTimer(); $("#recHint", root).textContent = "עוצר…"; if (rec.finished) rec.onState("off"); }
       else { rec.start(); startTimer(); }          // start נקרא ישירות מהלחיצה
     };
     function startTimer() {

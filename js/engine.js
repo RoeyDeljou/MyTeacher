@@ -318,7 +318,9 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder) };
     }
     async start() {
-      this.active = true; this.startedAt = performance.now(); this.chunks = [];
+      if (this.active) return;
+      this.active = true; this.finished = false; this.quickEnds = 0; this.lastError = null;
+      this.startedAt = performance.now(); this.chunks = [];
       if (this.audioUrl) { URL.revokeObjectURL(this.audioUrl); this.audioUrl = null; }
       // בתוך claude.ai – dictation של הפלטפורמה (חייב להיקרא ישר מהלחיצה)
       if (dictation) {
@@ -388,20 +390,32 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         if (ev.error === "audio-capture" && this.mr) {      // המיקרופון תפוס ע"י ההקלטה – ממשיכים בלי הקלטה
           this.stopMedia(false); this.mr = null; state.settings.keepAudio = false; save();
         } else if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-          this.active = false;
+          this.active = false; clearTimeout(this.restartT);
+          try { r.abort(); } catch (e) { }
           if (ev.error === "service-not-allowed") srBroken = true;   // בדרך כלל: Dictation/Siri כבויים ב-iOS
           this.onState("error", ev.error === "service-not-allowed" ? "ios-dictation" : "denied");
         }
       };
       r.onend = () => {
+        if (this.rec !== r) return;                          // אירוע של מופע ישן
         if (this.pending) { this.onText(this.pending); this.pending = ""; }   // לא לאבד טקסט שלא סומן סופי
         if (this.active) {
-          try { this.startRecognition(); return; }          // Safari עוצר אחרי שקט – ממשיכים
-          catch (e) { this.active = false; }
+          // Safari עוצר אחרי שקט. ממשיכים – אבל אף פעם לא באותו רגע ולא בלולאה.
+          const life = performance.now() - this.recStartedAt;
+          this.quickEnds = life < 1500 ? this.quickEnds + 1 : 0;
+          if (this.quickEnds >= 3) { this.active = false; this.finish("speech-ended"); return; }
+          clearTimeout(this.restartT);
+          this.restartT = setTimeout(() => {
+            if (!this.active) return;
+            try { this.startRecognition(); }
+            catch (e) { this.active = false; this.finish("speech-ended"); }
+          }, 350);
+          return;
         }
         this.finish(this.lastError);
       };
       this.rec = r;
+      this.recStartedAt = performance.now();
       r.start();
     }
     stopMedia(keep) {
@@ -417,16 +431,24 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       } else if (this.stream) this.stream.getTracks().forEach(t => t.stop());
     }
     stop() {
-      if (!this.active) return;
+      if (this.finished) return;
+      const wasActive = this.active;
       this.active = false;
-      this.elapsed += (performance.now() - this.startedAt) / 1000;
-      if (this.mode === "dictation") { dictation.stop().catch(() => { }); return; }
-      if (this.rec) { try { this.rec.stop(); } catch (e) { this.finish(); } }
-      else this.finish();
+      clearTimeout(this.restartT);
+      if (wasActive) this.elapsed += (performance.now() - this.startedAt) / 1000;
+      if (this.mode === "dictation") { dictation.stop().catch(() => { }); setTimeout(() => this.finish(), 1500); return; }
+      const r = this.rec;
+      if (r) {
+        try { r.stop(); } catch (e) { }
+        // אם הדפדפן לא מסיים בעצמו – עוצרים בכוח ומעדכנים את המסך
+        setTimeout(() => { if (!this.finished) { try { r.abort(); } catch (e) { } if (this.pending) { this.onText(this.pending); this.pending = ""; } this.finish(); } }, 800);
+      } else this.finish();
     }
     finish(reason) {
+      if (this.finished) return;                             // פעם אחת בלבד
+      this.finished = true; this.active = false;
+      clearTimeout(this.restartT);
       if (this.offs) { this.offs.forEach(f => { try { f(); } catch (e) { } }); this.offs = null; }
-      if (this._done) { this._done = false; }
       this.stopMedia(true);
       this.onInterim("");
       this.onState("off", reason);

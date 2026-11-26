@@ -2994,7 +2994,9 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       return { dictation: false, speech: !!SR && !srBroken, media: !!(navigator.mediaDevices && window.MediaRecorder) };
     }
     async start() {
-      this.active = true; this.startedAt = performance.now(); this.chunks = [];
+      if (this.active) return;
+      this.active = true; this.finished = false; this.quickEnds = 0; this.lastError = null;
+      this.startedAt = performance.now(); this.chunks = [];
       if (this.audioUrl) { URL.revokeObjectURL(this.audioUrl); this.audioUrl = null; }
       // בתוך claude.ai – dictation של הפלטפורמה (חייב להיקרא ישר מהלחיצה)
       if (dictation) {
@@ -3064,20 +3066,32 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         if (ev.error === "audio-capture" && this.mr) {      // המיקרופון תפוס ע"י ההקלטה – ממשיכים בלי הקלטה
           this.stopMedia(false); this.mr = null; state.settings.keepAudio = false; save();
         } else if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
-          this.active = false;
+          this.active = false; clearTimeout(this.restartT);
+          try { r.abort(); } catch (e) { }
           if (ev.error === "service-not-allowed") srBroken = true;   // בדרך כלל: Dictation/Siri כבויים ב-iOS
           this.onState("error", ev.error === "service-not-allowed" ? "ios-dictation" : "denied");
         }
       };
       r.onend = () => {
+        if (this.rec !== r) return;                          // אירוע של מופע ישן
         if (this.pending) { this.onText(this.pending); this.pending = ""; }   // לא לאבד טקסט שלא סומן סופי
         if (this.active) {
-          try { this.startRecognition(); return; }          // Safari עוצר אחרי שקט – ממשיכים
-          catch (e) { this.active = false; }
+          // Safari עוצר אחרי שקט. ממשיכים – אבל אף פעם לא באותו רגע ולא בלולאה.
+          const life = performance.now() - this.recStartedAt;
+          this.quickEnds = life < 1500 ? this.quickEnds + 1 : 0;
+          if (this.quickEnds >= 3) { this.active = false; this.finish("speech-ended"); return; }
+          clearTimeout(this.restartT);
+          this.restartT = setTimeout(() => {
+            if (!this.active) return;
+            try { this.startRecognition(); }
+            catch (e) { this.active = false; this.finish("speech-ended"); }
+          }, 350);
+          return;
         }
         this.finish(this.lastError);
       };
       this.rec = r;
+      this.recStartedAt = performance.now();
       r.start();
     }
     stopMedia(keep) {
@@ -3093,16 +3107,24 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       } else if (this.stream) this.stream.getTracks().forEach(t => t.stop());
     }
     stop() {
-      if (!this.active) return;
+      if (this.finished) return;
+      const wasActive = this.active;
       this.active = false;
-      this.elapsed += (performance.now() - this.startedAt) / 1000;
-      if (this.mode === "dictation") { dictation.stop().catch(() => { }); return; }
-      if (this.rec) { try { this.rec.stop(); } catch (e) { this.finish(); } }
-      else this.finish();
+      clearTimeout(this.restartT);
+      if (wasActive) this.elapsed += (performance.now() - this.startedAt) / 1000;
+      if (this.mode === "dictation") { dictation.stop().catch(() => { }); setTimeout(() => this.finish(), 1500); return; }
+      const r = this.rec;
+      if (r) {
+        try { r.stop(); } catch (e) { }
+        // אם הדפדפן לא מסיים בעצמו – עוצרים בכוח ומעדכנים את המסך
+        setTimeout(() => { if (!this.finished) { try { r.abort(); } catch (e) { } if (this.pending) { this.onText(this.pending); this.pending = ""; } this.finish(); } }, 800);
+      } else this.finish();
     }
     finish(reason) {
+      if (this.finished) return;                             // פעם אחת בלבד
+      this.finished = true; this.active = false;
+      clearTimeout(this.restartT);
       if (this.offs) { this.offs.forEach(f => { try { f(); } catch (e) { } }); this.offs = null; }
-      if (this._done) { this._done = false; }
       this.stopMedia(true);
       this.onInterim("");
       this.onState("off", reason);
@@ -3411,9 +3433,9 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       onState: (s, extra) => {
         const b = $("#recBtn", root);
         if (s === "on") { mode = "voice"; b.classList.add("on", "stop"); b.innerHTML = icon("stop"); b.setAttribute("aria-label", "עצור הקלטה"); $("#recHint", root).textContent = "מקליט… דבר כמו בריאיון"; }
-        if (s === "off") { b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); b.setAttribute("aria-label", "התחל הקלטה"); $("#recHint", root).textContent = extra && extra !== "stopped" && extra !== "viewer_stopped" ? recError(extra) : "ההקלטה נעצרה. אפשר לתקן את התמלול ואז לבקש משוב."; }
+        if (s === "off") { stopTimer(); b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); b.setAttribute("aria-label", "התחל הקלטה"); $("#recHint", root).textContent = extra && extra !== "stopped" && extra !== "viewer_stopped" ? recError(extra) : "ההקלטה נעצרה. אפשר לתקן את התמלול ואז לבקש משוב."; }
         if (s === "audio") { audioUrl = extra; const a = $("#audioBox", root); a.innerHTML = `<p class="small muted">ההקלטה שלך – שמע את עצמך:</p><audio controls src="${extra}"></audio>`; }
-        if (s === "error") { $("#recHint", root).textContent = recError(extra); }
+        if (s === "error") { b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); stopTimer(); $("#recHint", root).textContent = recError(extra); }
       }
     });
 
@@ -3425,6 +3447,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       if (r === "unsupported" || r === "unavailable") return "התמלול לא נתמך כאן. אפשר להקליד, או להשתמש במיקרופון של המקלדת בתוך התיבה.";
       if (r === "mic") return "לא הצלחתי לפתוח את המיקרופון.";
       if (r === "hidden") return "ההקלטה נעצרה כי המסך הוסתר.";
+      if (r === "speech-ended") return "התמלול נעצר אחרי שקט. מה שנאמר נשמר בתיבה – לחץ שוב על המיקרופון כדי להמשיך.";
       return "ההקלטה נעצרה.";
     }
 
@@ -3477,7 +3500,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     $("#speakBtn", root).onclick = () => { if (!E.speak(qText(it))) toast("הקראה לא נתמכת בדפדפן הזה"); };
     $("#recBtn", root).onclick = () => {
       if (!E.Recorder.support().dictation && !E.Recorder.support().speech && !E.Recorder.support().media) { keyboardMic(); $("#recHint", root).textContent = KB_TIP; mode = "voice"; if (!kbStart) kbStart = performance.now(); startTimer(); return; }
-      if (rec.active) { rec.stop(); stopTimer(); }
+      if (rec.active || $("#recBtn", root).classList.contains("on")) { rec.stop(); stopTimer(); $("#recHint", root).textContent = "עוצר…"; if (rec.finished) rec.onState("off"); }
       else { rec.start(); startTimer(); }          // start נקרא ישירות מהלחיצה
     };
     function startTimer() {
