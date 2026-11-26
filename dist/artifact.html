@@ -3344,6 +3344,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         <a class="btn primary" href="#sim">${icon("mic")} סימולציית ריאיון</a>
         <button class="btn" id="randQ">${icon("spark")} שאלה חדשה אקראית</button>
       </div>
+      ${ss.answered ? `<button class="btn" id="againQ">${icon("mic")} תרגל שוב שאלות שכבר ענית (${ss.answered})</button>` : ""}
       ${ss.weak ? `<button class="btn ghost sm" id="weakQ">חזרה על ${ss.weak} שאלות עם ציון מתחת ל-7</button>` : ""}
     </section>
 
@@ -3405,6 +3406,11 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     </details>`;
 
     $("#randQ").onclick = () => { const it = pickNew(cur); if (it) location.hash = "q-" + it.id; };
+    const ag = $("#againQ"); if (ag) ag.onclick = () => {
+      const ids = buildSim(cur, Math.min(8, ss.answered), "answered");
+      sim = { stage: cur, ids, i: 0, results: [], done: false };
+      location.hash = "sim";
+    };
     const w = $("#weakQ"); if (w) w.onclick = () => { const it = pickWeak(cur); if (it) location.hash = "q-" + it.id; };
     main.querySelectorAll("[data-stage]").forEach(a => a.onclick = () => { practiceState.stage = a.dataset.stage; });
     const fb = $("#finishBtn");
@@ -3447,6 +3453,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     const cats = sk === "tech" ? Object.entries(D.stage2Kinds).map(([k, v]) => [k, v.he]) : [...new Set(items.map(i => i.c))].map(c => [c, D.cats[c].he]);
     let list = items.filter(i => !practiceState.cat || i.c === practiceState.cat || i.k === practiceState.cat);
     if (practiceState.filter === "new") list = list.filter(i => E.best(i.id) == null);
+    if (practiceState.filter === "done") list = list.filter(i => E.best(i.id) != null);
     if (practiceState.filter === "weak") list = list.filter(i => { const b = E.best(i.id); return b != null && b < 7; });
     main.innerHTML = `
     <section class="stack">
@@ -3462,7 +3469,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         ${cats.map(([k, he]) => `<button class="chip" data-cat="${k}" aria-pressed="${practiceState.cat === k}">${esc(he)}</button>`).join("")}
       </div>
       <div class="chips" role="group" aria-label="סינון">
-        ${[["all", "הכול"], ["new", "לא תורגלו"], ["weak", "ציון מתחת ל-7"]].map(([k, he]) => `<button class="chip" data-f="${k}" aria-pressed="${practiceState.filter === k}">${he}</button>`).join("")}
+        ${[["all", "הכול"], ["new", "לא תורגלו"], ["done", "כבר ענית"], ["weak", "ציון מתחת ל-7"]].map(([k, he]) => `<button class="chip" data-f="${k}" aria-pressed="${practiceState.filter === k}">${he}</button>`).join("")}
       </div>
     </section>
     <section class="qlist">
@@ -3470,7 +3477,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         const b = E.best(i.id);
         return `<button class="qitem" data-id="${i.id}">
           <div><p>${esc(i.title ? i.title + " – " + qText(i) : qText(i))}</p>
-          <div class="meta"><span class="badge">${esc(catLabel(i))}</span><span class="badge">רמה ${i.lv}</span>${i.time ? `<span class="badge">${i.time} דק'</span>` : ""}${i.resume ? `<span class="badge gold">נקודת ההמשך</span>` : ""}</div></div>
+          <div class="meta"><span class="badge">${esc(catLabel(i))}</span><span class="badge">רמה ${i.lv}</span>${i.time ? `<span class="badge">${i.time} דק'</span>` : ""}${i.resume ? `<span class="badge gold">נקודת ההמשך</span>` : ""}${(E.state.attempts[i.id] || []).length ? `<span class="badge violet">ענית ${(E.state.attempts[i.id] || []).length} פעמים</span>` : ""}</div></div>
           <span class="score-dot ${scoreCls(b)}">${fmt(b)}</span></button>`;
       }).join("") : `<div class="empty">אין שאלות שמתאימות לסינון.</div>`}
     </section>`;
@@ -3547,7 +3554,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     <section class="card">
       <div class="row between">
         <div class="row" style="gap:6px">${opts.position ? `<span class="badge violet">${opts.position}</span>` : ""}<span class="badge">${esc(catLabel(it))}</span><span class="badge">רמה ${it.lv}</span>${it.resume ? '<span class="badge gold">נקודת ההמשך</span>' : ""}</div>
-        ${prevAttempts.length ? `<span class="badge ${scoreCls(E.best(it.id))}">הכי טוב: ${fmt(E.best(it.id))}</span>` : ""}
+        ${prevAttempts.length ? `<span class="badge ${scoreCls(E.best(it.id))}">ניסיון ${prevAttempts.length + 1} · הכי טוב ${fmt(E.best(it.id))} · אחרון ${fmt(prevAttempts[prevAttempts.length - 1].score)}</span>` : ""}
       </div>
       ${it.title ? `<h2>${esc(it.title)}</h2>` : ""}
       <p class="qtext">${esc(qText(it))}</p>
@@ -3703,12 +3710,20 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         <select id="simStage" class="search">${STAGES.filter(s => s.key !== "hr" && (s.key === "tl" || st.unlocked[s.key])).map(s => `<option value="${s.key}" ${s.key === cur ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select>
         <label class="field" for="simLen">אורך</label>
         <select id="simLen" class="search"><option value="5">קצרה – 5 שאלות (כ-15 דקות)</option><option value="8" selected>רגילה – 8 שאלות (כ-25 דקות)</option><option value="11">מלאה – 11 שאלות (כ-40 דקות)</option></select>
+        <label class="field" for="simSrc">אילו שאלות</label>
+        <select id="simSrc" class="search">
+          <option value="new">חדשות קודם (מומלץ)</option>
+          <option value="answered">תרגול חוזר – רק שאלות שכבר ענית</option>
+          <option value="all">הכול באקראי</option>
+        </select>
         <button class="btn primary block" id="simGo">${icon("play")} התחל סימולציה</button>
       </section>
       ${st.sessions.length ? `<section class="card"><h2>סימולציות קודמות</h2>${st.sessions.slice(-6).reverse().map(s => `<div class="row between"><span>${new Date(s.ts).toLocaleDateString("he-IL")} · ${esc(stageOf(s.stage).name)}</span><span class="badge ${scoreCls(s.avg)}">${fmt(s.avg)}</span></div>`).join("")}</section>` : ""}`;
       $("#simGo").onclick = () => {
-        const stage = $("#simStage").value, n = +$("#simLen").value;
-        sim = { stage, ids: buildSim(stage, n), i: 0, results: [], done: false };
+        const stage = $("#simStage").value, n = +$("#simLen").value, src = $("#simSrc").value;
+        const ids = buildSim(stage, n, src);
+        if (!ids.length) { toast("עוד לא ענית על שאלות בשלב הזה. בחר 'חדשות קודם'."); return; }
+        sim = { stage, ids, i: 0, results: [], done: false };
         viewSim(main);
       };
       return;
@@ -3728,8 +3743,19 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       }
     });
   }
-  function buildSim(stage, n) {
-    const items = stageOf(stage).items();
+  function buildSim(stage, n, source = "new") {
+    const all = stageOf(stage).items();
+    if (source === "answered") {
+      // תרגול חוזר: קודם הציונים הנמוכים, ואז מה שלא תורגל הכי הרבה זמן
+      const lastTs = id => { const a = E.last(id); return a ? a.ts : 0; };
+      return all.filter(i => E.best(i.id) != null)
+        .sort((a, b) => (E.best(a.id) - E.best(b.id)) || (lastTs(a.id) - lastTs(b.id)))
+        .slice(0, n).map(i => i.id);
+    }
+    if (source === "all") {
+      return all.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).slice(0, n).map(x => x[1].id);
+    }
+    const items = all;
     const fresh = i => E.best(i.id) == null;
     const shuffle = a => a.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map(x => x[1]);
     const chosen = [];
@@ -3766,8 +3792,11 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       ${sim.results.map(r => `<a class="qitem" href="#q-${r.id}" style="text-decoration:none;color:inherit"><div><p>${esc(r.q)}</p></div><span class="score-dot ${scoreCls(r.score)}">${fmt(r.score)}</span></a>`).join("")}
     </section>
     ${weak.length ? `<section class="card"><h2>לחזור עליהן</h2><p class="small muted">שאלות עם ציון מתחת ל-7. לחיצה פותחת את השאלה לתרגול חוזר.</p></section>` : ""}
+    <button class="btn block" id="redo">${icon("mic")} ענה שוב על אותן שאלות</button>
     <div class="grid2 stack-sm"><button class="btn primary" id="again">סימולציה חדשה</button><a class="btn" href="#home">למסך הבית</a></div>`;
     $("#again").onclick = () => { sim = null; viewSim(main); };
+    const redoIds = sim.ids.slice(), redoStage = sim.stage;
+    $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
     const sum = await E.sessionSummary(sim.results);
     const box = $("#aiSum");
     if (!box) return;
