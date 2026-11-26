@@ -1,5 +1,5 @@
 /* Service Worker: שומר את קבצי האפליקציה כדי שתעבוד גם בלי רשת. */
-const CACHE = "moonprep-v5";
+const CACHE = "moonprep-v6";
 const ASSETS = [
   "./", "./index.html", "./manifest.webmanifest", "./css/app.css",
   "./js/data-profile.js", "./js/data-stage1.js", "./js/data-stage2.js", "./js/data-stage3.js",

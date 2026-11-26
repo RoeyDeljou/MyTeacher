@@ -656,7 +656,7 @@
       <p class="small muted">ההתקדמות נשמרת בדפדפן הזה בלבד. כדי להעביר למכשיר אחר: העתק כאן, והדבק במכשיר השני. המפתח לא נכלל בגיבוי.</p>
       <div class="row"><button class="btn" id="exp">העתק גיבוי</button></div>
       <textarea id="impTxt" class="answer" dir="ltr" placeholder="הדבק כאן גיבוי כדי לשחזר" style="min-height:80px"></textarea>
-      <div class="row"><button class="btn" id="imp">שחזר מגיבוי</button><button class="btn ghost" id="resetBtn">איפוס כל ההתקדמות</button></div>
+      <div class="row"><button class="btn" id="imp">שחזר מגיבוי</button><button class="btn ghost" id="resetAns">איפוס תשובות וציונים בלבד</button><button class="btn ghost" id="resetBtn">איפוס כל ההתקדמות</button></div>
       <div id="resetBox"></div>
     </section>
     <section class="card">
@@ -691,6 +691,11 @@
       navigator.clipboard.writeText(data).then(() => toast("הגיבוי הועתק"), () => { const t = $("#impTxt"); t.value = data; t.select(); toast("סמן והעתק את הטקסט בתיבה"); });
     };
     $("#imp").onclick = () => { try { E.importJSON($("#impTxt").value); applyTheme(); toast("ההתקדמות שוחזרה"); route(); } catch (e) { toast("הטקסט לא נראה כמו גיבוי תקין"); } };
+    $("#resetAns").onclick = () => {
+      $("#resetBox").innerHTML = `<div class="confirm"><b>למחוק את כל התשובות והציונים?</b><p class="small">השלבים, ההערות על Coin Master והמפתחות נשארים. אי אפשר לבטל.</p><div class="row"><button class="btn gold" id="yesAns">מחק תשובות</button><button class="btn ghost" id="noAns">ביטול</button></div></div>`;
+      $("#noAns").onclick = () => $("#resetBox").innerHTML = "";
+      $("#yesAns").onclick = () => { E.resetAnswers(); toast("התשובות והציונים אופסו"); route(); };
+    };
     $("#resetBtn").onclick = () => {
       $("#resetBox").innerHTML = `<div class="confirm"><b>למחוק את כל ההתקדמות?</b><p class="small">כל התשובות, הציונים והשלבים יימחקו. אי אפשר לבטל.</p><div class="row"><button class="btn gold" id="yesReset">מחק</button><button class="btn ghost" id="noReset">ביטול</button></div></div>`;
       $("#noReset").onclick = () => $("#resetBox").innerHTML = "";
@@ -701,6 +706,7 @@
   /* ───────── Boot ───────── */
   function boot() {
     E.load(); applyTheme();
+    if (E.state.justMigrated) { delete E.state.justMigrated; E.save(); setTimeout(() => toast("השאלות נוסחו מחדש בסגנון שיחה. התשובות והציונים הקודמים אופסו – מתחילים מחדש."), 600); }
     $("#nav").innerHTML = `<div class="row">
       <a href="#home" data-k="home">${icon("home")}<span>בית</span></a>
       <a href="#practice" data-k="practice">${icon("list")}<span>תרגול</span></a>

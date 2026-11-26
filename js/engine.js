@@ -1,9 +1,11 @@
 /* מנוע: שמירת התקדמות, הקלטה ותמלול, והערכת תשובות (AI או הערכה בסיסית לא מקוונת). */
 (function () {
   const STORE_KEY = "moonprep.v1";
+  const Q_VERSION = 2;
 
   /* ───────── Storage ───────── */
   const defaults = () => ({
+    qVersion: Q_VERSION,
     unlocked: { tl: true, tech: false, final: false },
     finished: { hr: true, tl: false, tech: false, final: false },
     attempts: {},       // id -> [{ts, text, code, mode, dur, score, src, fb}]
@@ -23,6 +25,13 @@
         state.unlocked = Object.assign(d.unlocked, s.unlocked || {});
         state.finished = Object.assign(d.finished, s.finished || {});
         state.cm = Object.assign(d.cm, s.cm || {});
+        // השאלות נוסחו מחדש בסגנון שיחה (גרסה 2): מאפסים תשובות וציונים ישנים פעם אחת
+        if (!s.qVersion || s.qVersion < Q_VERSION) {
+          const had = Object.keys(s.attempts || {}).length > 0 || (s.sessions || []).length > 0;
+          state.attempts = {}; state.sessions = []; state.qVersion = Q_VERSION;
+          state.justMigrated = had;
+          save();
+        }
       }
     } catch (e) { state = defaults(); }
     return state;
@@ -37,6 +46,7 @@
     state.settings = Object.assign(defaults().settings, s.settings || {}, { apiKey: key, groqKey: gk });
     save();
   }
+  function resetAnswers() { state.attempts = {}; state.sessions = []; save(); }
   function reset() { const key = state.settings.apiKey, gk = state.settings.groqKey; state = defaults(); state.settings.apiKey = key; state.settings.groqKey = gk; save(); }
 
   function addAttempt(id, a) { (state.attempts[id] = state.attempts[id] || []).push(a); save(); }
@@ -543,7 +553,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
   }
 
   window.Engine = {
-    load, save, get state() { return state; }, exportJSON, importJSON, reset,
+    load, save, get state() { return state; }, exportJSON, importJSON, reset, resetAnswers,
     addAttempt, best, last, evaluate, sessionSummary, providerAvailable, initSample, initDictation,
     Recorder, speak, stopSpeak, coverage, words, fillerCount,
     inClaude: IN_CLAUDE, isIOS: IS_IOS, whisperReady,
