@@ -4,7 +4,7 @@ window.APP_DATA = window.APP_DATA || {};
 
 APP_DATA.stage3 = [
 { id:"f-system-feature", c:"arch", lv:3,
-  q:"System Design: תכנן מקצה לקצה פיצ'ר של 'Team Event' – קבוצות של 5 שחקנים צוברות נקודות יחד במשך 3 ימים ומקבלות תגמול משותף. מה בלקוח, מה בשרת, איך נטען ומה מודדים?",
+  q:"בוא נתכנן ביחד פיצ'ר: קבוצה של חמישה שחקנים צוברת נקודות יחד במשך שלושה ימים ומקבלת פרס משותף. איך היית בונה את זה?",
   p:[["דרישות ושאלות הבהרה לפני תכנון","דרישות|שאלות|הבהרה|requirements"],
      ["Data Model: קבוצה, ניקוד, זמני התחלה/סיום, תגמולים","data model|מודל|ניקוד|זמנים|תגמולים"],
      ["שרת: צבירת נקודות Authoritative, Idempotency, זמני שרת","שרת|authoritative|idempotency|זמן שרת"],
@@ -13,7 +13,7 @@ APP_DATA.stage3 = [
      ["Analytics ומדדי הצלחה","analytics|kpi|retention|engagement"],
      ["מקרי קצה: חבר עוזב, אופליין, אזורי זמן","מקרי קצה|עוזב|אופליין|אזור זמן"]],
   m:["לקפוץ ל-UI לפני Data ו-Server"],
-  f:["איך תבדוק את הפיצ'ר לפני השקה למיליוני משתמשים?"],
+  f:["איך תבדוק את זה לפני שזה יוצא למיליוני שחקנים?"],
   t:"מבנה: Requirements → Data → Server → Client → Live Ops → Metrics → Risks." },
 { id:"f-ai-vision", c:"ai", lv:2,
   q:"איך אתה רואה את עבודת מפתח ה-Unity בעוד שנתיים, עם Agents ו-AI בכל שלב? ומה המשמעות לצוות שלנו?",
@@ -61,7 +61,7 @@ APP_DATA.stage3 = [
   f:[],
   t:"" },
 { id:"f-scale-real", c:"perf", lv:3,
-  q:"המשחק שלנו רץ על מאות דגמי Android שונים. איך היית מוודא שפיצ'ר שלך לא פוגע בחלק מהם?",
+  q:"המשחק רץ על מאות דגמי טלפונים שונים. איך תוודא שהפיצ'ר שלך לא פוגע בחלק מהם?",
   p:[["Device Matrix ובדיקה על מכשירים חלשים","מכשירים|device|חלשים|matrix"],
      ["Telemetry לפי דגם אחרי השקה","telemetry|דגם|analytics"],
      ["Rollout הדרגתי ו-Feature Flag","rollout|feature flag"],
