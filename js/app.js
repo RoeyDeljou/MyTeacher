@@ -99,6 +99,11 @@
       ${ss.weak ? `<button class="btn ghost sm" id="weakQ">חזרה על ${ss.weak} שאלות עם ציון מתחת ל-7</button>` : ""}
     </section>
 
+    ${cur === "tl" ? `<section class="card"><div class="row between"><h2>מה הכי חשוב בריאיון הזה</h2><span class="badge gold">AI-first</span></div>
+      <p>המשרה מוגדרת AI-first: הדגש הוא על איך אתה עובד עם AI ובונה איתו, ורק אחר כך על הידע ב-Unity. לכן כחצי מכל סימולציה הן שאלות AI, ובבנק יש ארבעה נושאי AI.</p>
+      <div class="row">${D.topics.slice(0, 4).map(t => `<a class="chip" href="#practice" data-topic="${t.key}">${esc(t.he)}</a>`).join("")}</div>
+    </section>` : ""}
+
     ${cur === "tl" && resume && !resumeDone ? `
     <section class="card">
       <div class="row between"><h2>נקודת ההמשך מהשיחה הקודמת</h2><span class="badge gold">לא נענתה</span></div>
@@ -164,6 +169,7 @@
     };
     const w = $("#weakQ"); if (w) w.onclick = () => { const it = pickWeak(cur); if (it) location.hash = "q-" + it.id; };
     main.querySelectorAll("[data-stage]").forEach(a => a.onclick = () => { practiceState.stage = a.dataset.stage; });
+    main.querySelectorAll("[data-topic]").forEach(a => a.onclick = () => { practiceState.stage = "tl"; practiceState.cat = a.dataset.topic; practiceState.filter = "all"; });
     const fb = $("#finishBtn");
     if (fb) fb.onclick = () => {
       const box = $("#finishBox");
@@ -201,8 +207,11 @@
     if (!practiceState.stage || (practiceState.stage !== "tl" && !st.unlocked[practiceState.stage])) practiceState.stage = currentStage();
     const sk = practiceState.stage;
     const items = stageOf(sk).items();
-    const cats = sk === "tech" ? Object.entries(D.stage2Kinds).map(([k, v]) => [k, v.he]) : [...new Set(items.map(i => i.c))].map(c => [c, D.cats[c].he]);
-    let list = items.filter(i => !practiceState.cat || i.c === practiceState.cat || i.k === practiceState.cat);
+    const cats = sk === "tech" ? Object.entries(D.stage2Kinds).map(([k, v]) => [k, v.he])
+      : sk === "tl" ? D.topics.map(t => [t.key, t.he])
+      : [...new Set(items.map(i => i.c))].map(c => [c, D.cats[c].he]);
+    const matchCat = i => !practiceState.cat || (sk === "tl" ? inTopic(i, practiceState.cat) : (i.c === practiceState.cat || i.k === practiceState.cat));
+    let list = items.filter(matchCat);
     if (practiceState.filter === "new") list = list.filter(i => E.best(i.id) == null);
     if (practiceState.filter === "done") list = list.filter(i => E.best(i.id) != null);
     if (practiceState.filter === "weak") list = list.filter(i => { const b = E.best(i.id); return b != null && b < 7; });
