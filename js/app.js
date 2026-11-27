@@ -339,6 +339,7 @@
       <div id="audioBox"></div>
       <div id="resetAnsBox"><button class="btn ghost sm" id="resetAnsBtn">↺ התחל את התשובה מחדש</button></div>
       <button class="btn primary block" id="evalBtn">${icon("spark")} קבל משוב</button>
+      ${opts.onSkip ? `<button class="btn ghost block" id="skipBtn">דלג לשאלה הבאה ←</button>` : ""}
     </section>
     <div id="fb"></div>
     <details class="card flat" id="peek"><summary>${it.k ? "הצצה לנקודות המפתח (עדיף אחרי שעונים)" : "הצצה למה שמראיין רוצה לשמוע (עדיף אחרי שעונים)"}</summary>
@@ -388,9 +389,23 @@
         $("#recHint", root).textContent = "התשובה אופסה. לחץ על המיקרופון כדי להתחיל מחדש.";
         if (isTech) { openedAt = performance.now(); startTimer(); }
         renderResetBtn();
+    const skipBtn = $("#skipBtn", root);
+    if (skipBtn) skipBtn.onclick = () => {
+      rec.cancel();
+      if (timerId) { clearInterval(timerId); timerId = null; }
+      if ("speechSynthesis" in window) E.stopSpeak();
+      opts.onSkip();
+    };
       };
     }
     renderResetBtn();
+    const skipBtn = $("#skipBtn", root);
+    if (skipBtn) skipBtn.onclick = () => {
+      rec.cancel();
+      if (timerId) { clearInterval(timerId); timerId = null; }
+      if ("speechSynthesis" in window) E.stopSpeak();
+      opts.onSkip();
+    };
 
     $("#evalBtn", root).onclick = async () => {
       if (rec.active) rec.stop();
@@ -408,6 +423,7 @@
       evaluated = { answer, fb, meta };
       E.addAttempt(it.id, { ts: Date.now(), text: answer.text, code: answer.code || "", mode, dur: Math.round(meta.dur), score: fb.score, src: fb.src, fb: slimFb(fb) });
       btn.disabled = false; btn.innerHTML = `${icon("spark")} קבל משוב שוב (אחרי תיקון)`;
+      const sb = $("#skipBtn", root); if (sb) sb.remove();
       renderFeedback($("#fb", root), it, fb, opts, answer);
       $("#peek", root).remove();
       $("#fb", root).scrollIntoView({ behavior: "smooth", block: "start" });
@@ -477,7 +493,7 @@
       const holder = document.createElement("div");
       holder.className = "stack";
       box.after(holder);
-      runQuestion(holder, follow, { ...opts, position: "שאלת המשך", onNext: opts.onNext });
+      runQuestion(holder, follow, { ...opts, position: "שאלת המשך", onNext: opts.onNext, onSkip: undefined });
       holder.scrollIntoView({ behavior: "smooth" });
     };
   }
@@ -558,6 +574,11 @@
         sim.results.push({ id: it.id, q: qText(it), score: a ? a.score : null, text: a ? a.text : "", missing: a && a.fb ? a.fb.missing : [] });
         sim.i++;
         if (sim.i >= sim.ids.length) finishSim(main); else viewSim(main);
+      },
+      onSkip: () => {
+        sim.results.push({ id: it.id, q: qText(it), score: null, skipped: true, text: "", missing: [] });
+        sim.i++;
+        if (sim.i >= sim.ids.length) finishSim(main); else { viewSim(main); window.scrollTo(0, 0); }
       }
     });
   }
@@ -571,6 +592,7 @@
       const delta = prev && prev.avg != null && s.avg != null ? s.avg - prev.avg : null;
       const ids = s.ids || s.items.map(x => x.id);
       const scoreOf = id => { const it = s.items.find(x => x.id === id); return it ? it.score : null; };
+      const skippedOf = id => { const it = s.items.find(x => x.id === id); return !!(it && it.skipped); };
       return `<div class="term">
         <div class="row between">
           <div class="stack" style="gap:2px">
@@ -580,7 +602,7 @@
           <div class="row" style="gap:6px">${delta != null ? `<span class="badge ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${fmt(delta)}</span>` : ""}<span class="score-dot ${scoreCls(s.avg)}">${fmt(s.avg)}</span></div>
         </div>
         <div class="row"><button class="btn sm primary" data-retake="${idx}">${icon("play")} חזור על הסימולציה</button><button class="btn sm ghost" data-sdetail="${idx}">השאלות</button></div>
-        <ol class="small" id="sd-${idx}" hidden>${ids.map(id => { const it = findItem(id); return it ? `<li>${esc(qText(it))} <span class="badge ${scoreCls(scoreOf(id))}">${fmt(scoreOf(id))}</span></li>` : ""; }).join("")}</ol>
+        <ol class="small" id="sd-${idx}" hidden>${ids.map(id => { const it = findItem(id); return it ? `<li>${esc(qText(it))} ${skippedOf(id) ? `<span class="badge">דילגת</span>` : `<span class="badge ${scoreCls(scoreOf(id))}">${fmt(scoreOf(id))}</span>`}</li>` : ""; }).join("")}</ol>
       </div>`;
     }).join("");
   }
@@ -666,17 +688,17 @@
     const scored = sim.results.filter(r => r.score != null);
     const avg = scored.length ? scored.reduce((a, r) => a + r.score, 0) / scored.length : null;
     const sessTs = Date.now();
-    E.state.sessions.push({ ts: sessTs, stage: sim.stage, focus: sim.focus || [], ids: sim.ids.slice(), origin: sim.origin || sessTs, partial: sim.results.length < sim.ids.length, items: sim.results.map(r => ({ id: r.id, score: r.score })), avg });
+    E.state.sessions.push({ ts: sessTs, stage: sim.stage, focus: sim.focus || [], ids: sim.ids.slice(), origin: sim.origin || sessTs, partial: sim.results.length < sim.ids.length, items: sim.results.map(r => ({ id: r.id, score: r.score, skipped: !!r.skipped })), avg });
     E.save();
     const weak = sim.results.filter(r => r.score != null && r.score < 7);
     main.innerHTML = `
     <section class="card hero">
       <h1>דוח סימולציה</h1>
-      <div class="grid2"><div class="stat"><b>${fmt(avg)}</b><span>ציון ממוצע</span></div><div class="stat"><b>${sim.results.length}</b><span>שאלות</span></div></div>
+      <div class="grid2"><div class="stat"><b>${fmt(avg)}</b><span>ציון ממוצע</span></div><div class="stat"><b>${sim.results.filter(r => !r.skipped).length}/${sim.results.length}</b><span>שאלות שענית${sim.results.some(r => r.skipped) ? " (השאר דילגת)" : ""}</span></div></div>
       <div id="aiSum" class="stack">${E.providerAvailable() !== "offline" ? `<p class="row small muted"><span class="spinner"></span> המראיין כותב סיכום…</p>` : ""}</div>
     </section>
     <section class="card"><h2>פירוט</h2>
-      ${sim.results.map(r => `<a class="qitem" href="#q-${r.id}" style="text-decoration:none;color:inherit"><div><p>${esc(r.q)}</p></div><span class="score-dot ${scoreCls(r.score)}">${fmt(r.score)}</span></a>`).join("")}
+      ${sim.results.map(r => `<a class="qitem" href="#q-${r.id}" style="text-decoration:none;color:inherit"><div><p>${esc(r.q)}</p>${r.skipped ? `<div class="meta"><span class="badge">דילגת</span></div>` : ""}</div><span class="score-dot ${scoreCls(r.score)}">${fmt(r.score)}</span></a>`).join("")}
     </section>
     ${weak.length ? `<section class="card"><h2>לחזור עליהן</h2><p class="small muted">שאלות עם ציון מתחת ל-7. לחיצה פותחת את השאלה לתרגול חוזר.</p></section>` : ""}
     <button class="btn block" id="redo">${icon("mic")} ענה שוב על אותן שאלות</button>
@@ -684,7 +706,8 @@
     $("#again").onclick = () => { sim = null; viewSim(main); };
     const redoIds = sim.ids.slice(), redoStage = sim.stage, redoOrigin = sim.origin || sessTs, redoFocus = sim.focus || [];
     $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, focus: redoFocus, origin: redoOrigin, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
-    const sum = await E.sessionSummary(sim.results);
+    const answeredRes = sim.results.filter(r => !r.skipped);
+    const sum = answeredRes.length ? await E.sessionSummary(answeredRes) : null;
     const box = $("#aiSum");
     if (!box) return;
     if (!sum) { box.innerHTML = E.providerAvailable() === "offline" ? "" : `<p class="small muted">הסיכום לא נוצר הפעם.</p>`; return; }
