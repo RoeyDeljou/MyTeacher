@@ -221,6 +221,13 @@ hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%
 /* iOS: שדות מתחת ל-16px גורמים לזום אוטומטי בפוקוס */
 @media (pointer: coarse) { textarea.answer.codeed, .search, input, select, textarea { font-size: 16px; } }
 
+/* Dropdown רב-בחירה */
+details.dd { padding: 0; }
+details.dd > summary { padding: 12px 14px; min-height: 46px; font-weight: 500; }
+details.dd[open] > summary { margin-bottom: 0; border-bottom: 1px solid var(--line); }
+details.dd > .stack, details.dd > .row { padding: 10px 14px; }
+details.dd #focusList { max-height: 280px; overflow-y: auto; }
+
 </style>
 <div dir="rtl" lang="he">
 
@@ -1005,10 +1012,103 @@ APP_DATA.stage1 = [
   m:["'לא אפשרי' בלי חלופה"],
   f:[],
   t:"" }
+/* ───────────── Unity עם AI ───────────── */
+,{ id:"ua-perf-investigate", c:"ai", lv:2, tp:["unityai"],
+  q:"מסך החנות נהיה איטי אחרי העדכון האחרון. איך היית משתמש ב-AI כדי לחקור את זה, ובאילו שלבים היית סומך רק על המדידה שלך?",
+  p:[["מתחיל ממדידה אמיתית במכשיר, לא מהשערות של ה-AI","למדוד|מדידה|מכשיר|profiler|נתונים"],
+     ["נותן ל-AI את הנתונים ואת הקוד הרלוונטי כדי לקבל כיווני חקירה","לתת|נתונים|קוד|כיוונים|ניתוח"],
+     ["בודק כל השערה בעצמו לפני שמשנה קוד","לבדוק|השערה|לאמת"],
+     ["משווה מדידה לפני ואחרי התיקון","לפני|אחרי|להשוות"]],
+  m:["לבקש מה-AI 'תשפר ביצועים' בלי נתונים"], f:["ה-AI מציע שלושה שינויים בבת אחת. מה אתה עושה?"],
+  t:"תראה שה-AI מאיץ את החקירה, אבל ההחלטה מבוססת על מה שמדדת." }
+,{ id:"ua-refactor-refs", c:"ai", lv:3, tp:["unityai"],
+  q:"ביקשת מ-AI לשנות שמות ולארגן מחדש קוד Unity שמחובר להרבה Prefabs וסצנות. מה יכול להישבר שה-AI בכלל לא רואה, ואיך היית מגן על זה?",
+  p:[["ה-AI רואה קוד, אבל לא את החיבורים שנשמרו ב-Inspector, בסצנות וב-Prefabs","inspector|סצנות|prefab|חיבורים|לא רואה"],
+     ["שינוי שם של שדה או מחלקה יכול לנתק חיבורים בשקט","שם|לנתק|נשבר|rename"],
+     ["מגן: שינוי בצעדים קטנים, שמירה על השם הישן כשצריך (FormerlySerializedAs), ובדיקה ב-Unity","צעדים|formerlyserializedas|שם ישן|לבדוק"],
+     ["בדיקה של הסצנות וה-Prefabs אחרי כל שינוי","לפתוח|לבדוק|סצנות|missing"]],
+  m:["לסמוך על כך שאם הקוד מתקמפל הכול בסדר"], f:["איך היית מגלה מהר שחיבור נשבר אחרי שינוי כזה?"],
+  t:"זו נקודה שמראה ניסיון אמיתי ב-Unity: קוד שמתקמפל עדיין יכול לשבור את הסצנה." }
+,{ id:"ua-editor-vs-device", c:"ai", lv:2, tp:["unityai"],
+  q:"AI כתב לך קוד שעובד מצוין ב-Editor, אבל במכשיר הוא נכשל. באילו כיוונים היית מחפש?",
+  p:[["הבדלים בין Editor למכשיר: קוד שמיועד רק ל-Editor, נתיבי קבצים, הרשאות","editor|מכשיר|נתיב|הרשאות|unity_editor"],
+     ["ביצועים וזיכרון שמתנהגים אחרת בטלפון","ביצועים|זיכרון|טלפון"],
+     ["תהליכים ברקע ועבודה מול Unity שלא מהתהליך הראשי","רקע|תהליך|thread"],
+     ["בודק בלוגים מהמכשיר ומשחזר במכשיר אמיתי","לוג|מכשיר|לשחזר"]],
+  m:["לבקש מה-AI לתקן בלי להבין למה זה נכשל"], f:["איך היית מקבל לוגים מהמכשיר כדי להבין מה קרה?"],
+  t:"" }
+,{ id:"ua-editor-tool", c:"ai", lv:2, tp:["unityai"],
+  q:"ה-Designers צריכים כלי בתוך Unity לבדוק ערכים של אירועים, ואין זמן לבנות אותו מאפס. איך היית משתמש ב-AI כדי לבנות אותו מהר וטוב?",
+  p:[["מבין קודם מה ה-Designers באמת צריכים","להבין|צריכים|דרישות|לשאול"],
+     ["נותן ל-AI את מבנה הנתונים ומבקש כלי פשוט, ואז משפר בצעדים","מבנה|נתונים|פשוט|צעדים"],
+     ["בודק שהכלי לא משנה נתונים בטעות ושיש ולידציה","בטעות|ולידציה|בדיקה"],
+     ["מקבל משוב מה-Designers ומשפר","משוב|לשפר|designers"]],
+  m:[], f:[], t:"" }
+,{ id:"ua-tests-legacy", c:"ai", lv:2, tp:["unityai"],
+  q:"יש קוד Gameplay ישן בלי בדיקות, וצריך לשנות אותו. איך היית משתמש ב-AI כדי להגן על עצמך לפני השינוי?",
+  p:[["קודם מבין מה הקוד עושה היום – ה-AI עוזר להסביר ולמפות","להבין|להסביר|למפות|היום"],
+     ["בדיקות שמקבעות את ההתנהגות הקיימת לפני שמשנים","בדיקות|התנהגות קיימת|לפני"],
+     ["מוציא לוגיקה למקום שאפשר לבדוק בלי סצנה","להוציא|לוגיקה|בלי סצנה"],
+     ["משנה בצעדים קטנים ומריץ את הבדיקות בכל צעד","צעדים|להריץ|בכל"]],
+  m:["לבקש מה-AI לשכתב הכול ולקוות לטוב"], f:[], t:"" }
+,{ id:"ua-live-ai-feature", c:"ai", lv:3, tp:["unityai"],
+  q:"בנית פיצ'ר במשחק שמשתמש במודל AI בזמן אמת. איך היית דואג שהמשחק לא ייתקע וימשיך לעבוד גם כשהשירות איטי או נופל?",
+  p:[["הקריאה לא חוסמת את המשחק – רצה ברקע עם מצב טעינה","לא חוסם|ברקע|טעינה|async"],
+     ["מגבלת זמן, ניסיון חוזר מוגבל, ותוכן גיבוי כשאין תשובה","זמן|timeout|גיבוי|ניסיון חוזר"],
+     ["מבטלים בקשה כשהשחקן עוזב את המסך","לבטל|עוזב|מסך"],
+     ["מודדים זמני תגובה וכשלונות ויכולים לכבות את הפיצ'ר","למדוד|כשלונות|לכבות"]],
+  m:["לחכות לתשובה כשהמשחק קפוא"], f:["מה השחקן רואה כשהשירות לא עונה?"], t:"" }
+
+/* ───────────── ידע ב-AI ───────────── */
+,{ id:"ak-rag", c:"ai", lv:2, tp:["aiknow"],
+  q:"נגיד שהיינו רוצים עוזר AI שעונה לצוות על שאלות לגבי הקוד והתיעוד הפנימי שלנו. איך מודל שלא מכיר את המידע שלנו יוכל לענות נכון?",
+  p:[["המודל לא מכיר את המידע הפנימי מעצמו","לא מכיר|פנימי|מידע שלנו"],
+     ["מחפשים את הקטעים הרלוונטיים ושולחים אותם למודל יחד עם השאלה (RAG)","לחפש|רלוונטי|לשלוח|rag"],
+     ["עדיף על אימון מחדש כי המידע משתנה כל הזמן","משתנה|אימון|מתעדכן"],
+     ["עדיין צריך לבדוק שהוא לא ממציא, ולהראות מקורות","ממציא|מקורות|לבדוק"]],
+  m:[], f:["מה היית עושה אם הוא עונה בביטחון תשובה לא נכונה?"], t:"מספיק להסביר את הרעיון בפשטות ולהזכיר את השם פעם אחת." }
+,{ id:"ak-hallucination", c:"ai", lv:1, tp:["aiknow"],
+  q:"למה מודל AI לפעמים ממציא דברים בביטחון מלא, ואיך אתה מקטין את זה בעבודה היומיומית שלך?",
+  p:[["המודל מייצר את מה שסביר, לא את מה שבדוק","סביר|הסתברות|לא בדוק|מייצר"],
+     ["נותנים לו מידע אמיתי והקשר מדויק","מידע|הקשר|context"],
+     ["מבקשים ממנו לא להמציא ולהגיד כשהוא לא יודע","לא להמציא|לא יודע"],
+     ["בודקים את התוצאה – מריצים, קוראים תיעוד","לבדוק|להריץ|תיעוד"]],
+  m:[], f:["תן דוגמה לפעם שתפסת המצאה כזו."], t:"" }
+,{ id:"ak-context", c:"ai", lv:2, tp:["aiknow"],
+  q:"שמת לב שבשיחות ארוכות עם Claude Code או Cursor האיכות יורדת והוא שוכח דברים. למה זה קורה ומה אתה עושה עם זה?",
+  p:[["למודל יש גבול לכמה מידע הוא מתחשב בו בבת אחת","גבול|כמה מידע|context window|זיכרון"],
+     ["שיחה ארוכה מלאה במידע ישן שכבר לא רלוונטי","ארוך|ישן|לא רלוונטי"],
+     ["פותח שיחה חדשה למשימה חדשה, עם סיכום של מה שחשוב","שיחה חדשה|סיכום|משימה חדשה"],
+     ["שומר את הכללים החשובים בקובץ הוראות קבוע","קובץ הוראות|כללים|קבוע"]],
+  m:[], f:[], t:"" }
+,{ id:"ak-tools-agent", c:"ai", lv:2, tp:["aiknow"],
+  q:"איך בפועל מודל AI 'מריץ' פעולה, כמו לקרוא קובץ או לשאול מסד נתונים? מה קורה מאחורי הקלעים?",
+  p:[["המודל לא מריץ בעצמו – הוא מבקש להפעיל כלי עם פרמטרים","מבקש|כלי|פרמטרים|tool"],
+     ["האפליקציה מריצה את הכלי ומחזירה לו את התוצאה","אפליקציה|מריצה|מחזירה|תוצאה"],
+     ["בגלל זה האפליקציה קובעת מה מותר ובודקת את הבקשה","מותר|הרשאות|לבדוק"],
+     ["כך בנויים Agents – לולאה של לחשוב, להפעיל כלי ולקבל תוצאה","agent|לולאה|שלבים"]],
+  m:[], f:["מה היית מגביל אם זה Agent שעובד על הקוד של הצוות?"], t:"" }
+
 ];
 
 /* מבנה סימולציה מלאה – סדר טבעי של ריאיון מול Team Lead */
 APP_DATA.simFlow = ["intro", "intro", "ai", "unity", "csharp", "perf", "arch", "net", "ai", "cm", "team"];
+
+/* נושאי מיקוד לסימולציה: נושא כולל שאלה אם הקטגוריה שלה או ה-id שלה ברשימה */
+APP_DATA.topics = [
+  { key: "personal", he: "אישי ורקע מקצועי", cats: ["intro"], ids: [] },
+  { key: "unity", he: "Unity", cats: ["unity", "csharp"], ids: [] },
+  { key: "aifirst", he: "פיתוח AI-First", cats: [], ids: ["ai-workflow-feature","ai-context","ai-review","ai-wrong-arch","ai-cursor-vs-cc","ai-tests","ai-risk","ai-prompt-debug","ai-learn","ai-no-ai","ai-agent-team","f-ai-vision"] },
+  { key: "unityai", he: "Unity עם AI", cats: [], ids: ["ai-prompt-debug","ai-review","ai-tests","ai-llm-feature","ai-agent-team"] },
+  { key: "aiknow", he: "ידע ב-AI", cats: [], ids: ["ai-mcp-unity","ai-agentic","ai-tokens-cost","ai-llm-feature"] },
+  { key: "perf", he: "ביצועים ומובייל", cats: ["perf"], ids: ["un-texture","un-canvas","un-scene-load"] },
+  { key: "arch", he: "ארכיטקטורה ותכנון", cats: ["arch"], ids: ["f-system-feature"] },
+  { key: "net", he: "שרת וכלכלת משחק", cats: ["net"], ids: ["na-iap"] },
+  { key: "native", he: "Native ו-SDKs", cats: ["native"], ids: [] },
+  { key: "data", he: "Data ו-Production", cats: ["data"], ids: ["f-scale-real"] },
+  { key: "cm", he: "Coin Master ומוצר", cats: ["cm"], ids: [] },
+  { key: "team", he: "עבודה בצוות", cats: ["team"], ids: ["f-ownership","f-conflict-priority","f-90days"] }
+];
 
 </script>
 <script>
@@ -3391,6 +3491,15 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         <select id="simStage" class="search">${STAGES.filter(s => s.key !== "hr" && (s.key === "tl" || st.unlocked[s.key])).map(s => `<option value="${s.key}" ${s.key === cur ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select>
         <label class="field" for="simLen">אורך</label>
         <select id="simLen" class="search"><option value="5">קצרה – 5 שאלות (כ-15 דקות)</option><option value="8" selected>רגילה – 8 שאלות (כ-25 דקות)</option><option value="11">מלאה – 11 שאלות (כ-40 דקות)</option></select>
+        <div id="focusWrap" class="stack" style="gap:6px">
+          <span class="field" style="font-weight:600;font-size:.92rem">נושאי מיקוד <span class="muted" style="font-weight:400">(אפשר לבחור כמה)</span></span>
+          <details class="dd" id="focusDD">
+            <summary id="focusSum"></summary>
+            <div class="stack" id="focusList">${D.topics.map(t => `<label class="check"><input type="checkbox" value="${t.key}" ${(st.settings.focus || []).includes(t.key) ? "checked" : ""}><span>${esc(t.he)} <bdi class="muted small">(${D.stage1.filter(i => inTopic(i, t.key)).length} שאלות)</bdi></span></label>`).join("")}</div>
+            <div class="row" style="margin-top:8px"><button class="btn sm ghost" id="focusClear" type="button">נקה בחירה</button><button class="btn sm" id="focusDone" type="button">סיום</button></div>
+          </details>
+          <span class="small muted">כ-75% מהשאלות יגיעו מהנושאים שבחרת, והשאר מתמהיל רגיל של ריאיון.</span>
+        </div>
         <label class="field" for="simSrc">אילו שאלות</label>
         <select id="simSrc" class="search">
           <option value="new">חדשות קודם (מומלץ)</option>
@@ -3406,15 +3515,28 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         const sess = st.sessions[+b.dataset.retake];
         const ids = (sess.ids || sess.items.map(x => x.id)).filter(id => findItem(id));
         if (!ids.length) { toast("השאלות של הסימולציה הזו כבר לא קיימות"); return; }
-        sim = { stage: sess.stage, ids, origin: sess.origin || sess.ts, i: 0, results: [], done: false };
+        sim = { stage: sess.stage, ids, focus: sess.focus || [], origin: sess.origin || sess.ts, i: 0, results: [], done: false };
         viewSim(main); window.scrollTo(0, 0);
       });
+      const focusSel = () => [...main.querySelectorAll("#focusList input:checked")].map(x => x.value);
+      const drawFocus = () => {
+        const f = focusSel();
+        $("#focusSum").textContent = f.length ? f.map(k => D.topics.find(t => t.key === k).he).join(", ") : "ללא מיקוד – תמהיל רגיל של ריאיון";
+        st.settings.focus = f; E.save();
+      };
+      const toggleFocusVis = () => { $("#focusWrap").hidden = $("#simStage").value === "tech"; };
+      main.querySelectorAll("#focusList input").forEach(c => c.onchange = drawFocus);
+      $("#focusClear").onclick = () => { main.querySelectorAll("#focusList input").forEach(c => c.checked = false); drawFocus(); };
+      $("#focusDone").onclick = () => { $("#focusDD").open = false; };
+      $("#simStage").onchange = toggleFocusVis;
+      drawFocus(); toggleFocusVis();
       main.querySelectorAll("[data-sdetail]").forEach(b => b.onclick = () => { const d = $("#sd-" + b.dataset.sdetail); d.hidden = !d.hidden; });
       $("#simGo").onclick = () => {
         const stage = $("#simStage").value, n = +$("#simLen").value, src = $("#simSrc").value;
-        const ids = buildSim(stage, n, src);
+        const focus = stage === "tech" ? [] : focusSel();
+        const ids = buildSim(stage, n, src, focus);
         if (!ids.length) { toast("עוד לא ענית על שאלות בשלב הזה. בחר 'חדשות קודם'."); return; }
-        sim = { stage, ids, i: 0, results: [], done: false };
+        sim = { stage, ids, focus, i: 0, results: [], done: false };
         viewSim(main);
       };
       return;
@@ -3448,7 +3570,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
         <div class="row between">
           <div class="stack" style="gap:2px">
             <b>${new Date(s.ts).toLocaleDateString("he-IL")} ${new Date(s.ts).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</b>
-            <span class="small muted">${esc(stageOf(s.stage).short)} · ${ids.length} שאלות${s.partial ? " · לא הושלמה" : ""}${n > 1 ? ` · ניסיון ${n}` : ""}</span>
+            <span class="small muted">${esc(stageOf(s.stage).short)}${s.focus && s.focus.length ? " · מיקוד: " + esc(s.focus.map(k => (D.topics.find(t => t.key === k) || { he: k }).he).join(", ")) : ""} · ${ids.length} שאלות${s.partial ? " · לא הושלמה" : ""}${n > 1 ? ` · ניסיון ${n}` : ""}</span>
           </div>
           <div class="row" style="gap:6px">${delta != null ? `<span class="badge ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${fmt(delta)}</span>` : ""}<span class="score-dot ${scoreCls(s.avg)}">${fmt(s.avg)}</span></div>
         </div>
@@ -3457,7 +3579,52 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       </div>`;
     }).join("");
   }
-  function buildSim(stage, n, source = "new") {
+  function inTopic(item, key) {
+    const t = D.topics.find(x => x.key === key);
+    if (!t) return false;
+    return (item.tp || []).includes(key) || t.cats.includes(item.c) || t.ids.includes(item.id);
+  }
+  const CAT_ORDER = ["intro", "ai", "unity", "csharp", "perf", "arch", "net", "native", "data", "cm", "team"];
+  function orderInterview(ids) {
+    // סדר טבעי של ריאיון: היכרות קודם, שאלות צוות ומוצר בסוף
+    return ids.map(id => findItem(id)).filter(Boolean)
+      .map((it, i) => [CAT_ORDER.indexOf(it.c) < 0 ? 5 : CAT_ORDER.indexOf(it.c), i, it.id])
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+  }
+  function buildSim(stage, n, source = "new", focus = []) {
+    if (focus.length && stage !== "tech") return buildFocused(stage, n, source, focus);
+    return buildPlain(stage, n, source);
+  }
+  function buildFocused(stage, n, source, focus) {
+    const all = stageOf(stage).items();
+    const fresh = i => E.best(i.id) == null;
+    const shuffle = a => a.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map(x => x[1]);
+    const hit = i => focus.some(k => inTopic(i, k));
+    if (source === "answered") {
+      const lastTs = id => { const a = E.last(id); return a ? a.ts : 0; };
+      const ans = all.filter(i => E.best(i.id) != null).sort((a, b) => (E.best(a.id) - E.best(b.id)) || (lastTs(a.id) - lastTs(b.id)));
+      return [...ans.filter(hit), ...ans.filter(i => !hit(i))].slice(0, n).map(i => i.id);
+    }
+    const focusTarget = Math.min(n, Math.max(1, Math.round(n * 0.75)));
+    const chosen = [];
+    // סבב בין הנושאים שנבחרו, כדי שכל נושא יקבל ייצוג; חדשות קודם
+    const lists = focus.map(k => {
+      const l = shuffle(all.filter(i => inTopic(i, k)));
+      return source === "all" ? l : [...l.filter(fresh), ...l.filter(i => !fresh(i))];
+    });
+    let added = true;
+    while (chosen.length < focusTarget && added) {
+      added = false;
+      for (const l of lists) {
+        while (l.length && chosen.includes(l[0].id)) l.shift();
+        if (l.length && chosen.length < focusTarget) { chosen.push(l.shift().id); added = true; }
+      }
+    }
+    const rest = buildPlain(stage, n + chosen.length, source).filter(id => !chosen.includes(id));
+    while (chosen.length < n && rest.length) chosen.push(rest.shift());
+    return orderInterview(chosen.slice(0, n));
+  }
+  function buildPlain(stage, n, source = "new") {
     const all = stageOf(stage).items();
     if (source === "answered") {
       // תרגול חוזר: קודם הציונים הנמוכים, ואז מה שלא תורגל הכי הרבה זמן
@@ -3494,7 +3661,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     const scored = sim.results.filter(r => r.score != null);
     const avg = scored.length ? scored.reduce((a, r) => a + r.score, 0) / scored.length : null;
     const sessTs = Date.now();
-    E.state.sessions.push({ ts: sessTs, stage: sim.stage, ids: sim.ids.slice(), origin: sim.origin || sessTs, partial: sim.results.length < sim.ids.length, items: sim.results.map(r => ({ id: r.id, score: r.score })), avg });
+    E.state.sessions.push({ ts: sessTs, stage: sim.stage, focus: sim.focus || [], ids: sim.ids.slice(), origin: sim.origin || sessTs, partial: sim.results.length < sim.ids.length, items: sim.results.map(r => ({ id: r.id, score: r.score })), avg });
     E.save();
     const weak = sim.results.filter(r => r.score != null && r.score < 7);
     main.innerHTML = `
@@ -3510,8 +3677,8 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     <button class="btn block" id="redo">${icon("mic")} ענה שוב על אותן שאלות</button>
     <div class="grid2 stack-sm"><button class="btn primary" id="again">סימולציה חדשה</button><a class="btn" href="#home">למסך הבית</a></div>`;
     $("#again").onclick = () => { sim = null; viewSim(main); };
-    const redoIds = sim.ids.slice(), redoStage = sim.stage, redoOrigin = sim.origin || sessTs;
-    $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, origin: redoOrigin, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
+    const redoIds = sim.ids.slice(), redoStage = sim.stage, redoOrigin = sim.origin || sessTs, redoFocus = sim.focus || [];
+    $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, focus: redoFocus, origin: redoOrigin, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
     const sum = await E.sessionSummary(sim.results);
     const box = $("#aiSum");
     if (!box) return;

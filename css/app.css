@@ -216,3 +216,10 @@ hr { border: none; border-top: 1px solid var(--line); margin: 4px 0; width: 100%
 
 /* iOS: שדות מתחת ל-16px גורמים לזום אוטומטי בפוקוס */
 @media (pointer: coarse) { textarea.answer.codeed, .search, input, select, textarea { font-size: 16px; } }
+
+/* Dropdown רב-בחירה */
+details.dd { padding: 0; }
+details.dd > summary { padding: 12px 14px; min-height: 46px; font-weight: 500; }
+details.dd[open] > summary { margin-bottom: 0; border-bottom: 1px solid var(--line); }
+details.dd > .stack, details.dd > .row { padding: 10px 14px; }
+details.dd #focusList { max-height: 280px; overflow-y: auto; }

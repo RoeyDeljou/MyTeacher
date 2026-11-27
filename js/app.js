@@ -487,6 +487,15 @@
         <select id="simStage" class="search">${STAGES.filter(s => s.key !== "hr" && (s.key === "tl" || st.unlocked[s.key])).map(s => `<option value="${s.key}" ${s.key === cur ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select>
         <label class="field" for="simLen">אורך</label>
         <select id="simLen" class="search"><option value="5">קצרה – 5 שאלות (כ-15 דקות)</option><option value="8" selected>רגילה – 8 שאלות (כ-25 דקות)</option><option value="11">מלאה – 11 שאלות (כ-40 דקות)</option></select>
+        <div id="focusWrap" class="stack" style="gap:6px">
+          <span class="field" style="font-weight:600;font-size:.92rem">נושאי מיקוד <span class="muted" style="font-weight:400">(אפשר לבחור כמה)</span></span>
+          <details class="dd" id="focusDD">
+            <summary id="focusSum"></summary>
+            <div class="stack" id="focusList">${D.topics.map(t => `<label class="check"><input type="checkbox" value="${t.key}" ${(st.settings.focus || []).includes(t.key) ? "checked" : ""}><span>${esc(t.he)} <bdi class="muted small">(${D.stage1.filter(i => inTopic(i, t.key)).length} שאלות)</bdi></span></label>`).join("")}</div>
+            <div class="row" style="margin-top:8px"><button class="btn sm ghost" id="focusClear" type="button">נקה בחירה</button><button class="btn sm" id="focusDone" type="button">סיום</button></div>
+          </details>
+          <span class="small muted">כ-75% מהשאלות יגיעו מהנושאים שבחרת, והשאר מתמהיל רגיל של ריאיון.</span>
+        </div>
         <label class="field" for="simSrc">אילו שאלות</label>
         <select id="simSrc" class="search">
           <option value="new">חדשות קודם (מומלץ)</option>
@@ -502,15 +511,28 @@
         const sess = st.sessions[+b.dataset.retake];
         const ids = (sess.ids || sess.items.map(x => x.id)).filter(id => findItem(id));
         if (!ids.length) { toast("השאלות של הסימולציה הזו כבר לא קיימות"); return; }
-        sim = { stage: sess.stage, ids, origin: sess.origin || sess.ts, i: 0, results: [], done: false };
+        sim = { stage: sess.stage, ids, focus: sess.focus || [], origin: sess.origin || sess.ts, i: 0, results: [], done: false };
         viewSim(main); window.scrollTo(0, 0);
       });
+      const focusSel = () => [...main.querySelectorAll("#focusList input:checked")].map(x => x.value);
+      const drawFocus = () => {
+        const f = focusSel();
+        $("#focusSum").textContent = f.length ? f.map(k => D.topics.find(t => t.key === k).he).join(", ") : "ללא מיקוד – תמהיל רגיל של ריאיון";
+        st.settings.focus = f; E.save();
+      };
+      const toggleFocusVis = () => { $("#focusWrap").hidden = $("#simStage").value === "tech"; };
+      main.querySelectorAll("#focusList input").forEach(c => c.onchange = drawFocus);
+      $("#focusClear").onclick = () => { main.querySelectorAll("#focusList input").forEach(c => c.checked = false); drawFocus(); };
+      $("#focusDone").onclick = () => { $("#focusDD").open = false; };
+      $("#simStage").onchange = toggleFocusVis;
+      drawFocus(); toggleFocusVis();
       main.querySelectorAll("[data-sdetail]").forEach(b => b.onclick = () => { const d = $("#sd-" + b.dataset.sdetail); d.hidden = !d.hidden; });
       $("#simGo").onclick = () => {
         const stage = $("#simStage").value, n = +$("#simLen").value, src = $("#simSrc").value;
-        const ids = buildSim(stage, n, src);
+        const focus = stage === "tech" ? [] : focusSel();
+        const ids = buildSim(stage, n, src, focus);
         if (!ids.length) { toast("עוד לא ענית על שאלות בשלב הזה. בחר 'חדשות קודם'."); return; }
-        sim = { stage, ids, i: 0, results: [], done: false };
+        sim = { stage, ids, focus, i: 0, results: [], done: false };
         viewSim(main);
       };
       return;
@@ -544,7 +566,7 @@
         <div class="row between">
           <div class="stack" style="gap:2px">
             <b>${new Date(s.ts).toLocaleDateString("he-IL")} ${new Date(s.ts).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</b>
-            <span class="small muted">${esc(stageOf(s.stage).short)} · ${ids.length} שאלות${s.partial ? " · לא הושלמה" : ""}${n > 1 ? ` · ניסיון ${n}` : ""}</span>
+            <span class="small muted">${esc(stageOf(s.stage).short)}${s.focus && s.focus.length ? " · מיקוד: " + esc(s.focus.map(k => (D.topics.find(t => t.key === k) || { he: k }).he).join(", ")) : ""} · ${ids.length} שאלות${s.partial ? " · לא הושלמה" : ""}${n > 1 ? ` · ניסיון ${n}` : ""}</span>
           </div>
           <div class="row" style="gap:6px">${delta != null ? `<span class="badge ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${fmt(delta)}</span>` : ""}<span class="score-dot ${scoreCls(s.avg)}">${fmt(s.avg)}</span></div>
         </div>
@@ -553,7 +575,52 @@
       </div>`;
     }).join("");
   }
-  function buildSim(stage, n, source = "new") {
+  function inTopic(item, key) {
+    const t = D.topics.find(x => x.key === key);
+    if (!t) return false;
+    return (item.tp || []).includes(key) || t.cats.includes(item.c) || t.ids.includes(item.id);
+  }
+  const CAT_ORDER = ["intro", "ai", "unity", "csharp", "perf", "arch", "net", "native", "data", "cm", "team"];
+  function orderInterview(ids) {
+    // סדר טבעי של ריאיון: היכרות קודם, שאלות צוות ומוצר בסוף
+    return ids.map(id => findItem(id)).filter(Boolean)
+      .map((it, i) => [CAT_ORDER.indexOf(it.c) < 0 ? 5 : CAT_ORDER.indexOf(it.c), i, it.id])
+      .sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(x => x[2]);
+  }
+  function buildSim(stage, n, source = "new", focus = []) {
+    if (focus.length && stage !== "tech") return buildFocused(stage, n, source, focus);
+    return buildPlain(stage, n, source);
+  }
+  function buildFocused(stage, n, source, focus) {
+    const all = stageOf(stage).items();
+    const fresh = i => E.best(i.id) == null;
+    const shuffle = a => a.map(x => [Math.random(), x]).sort((p, q) => p[0] - q[0]).map(x => x[1]);
+    const hit = i => focus.some(k => inTopic(i, k));
+    if (source === "answered") {
+      const lastTs = id => { const a = E.last(id); return a ? a.ts : 0; };
+      const ans = all.filter(i => E.best(i.id) != null).sort((a, b) => (E.best(a.id) - E.best(b.id)) || (lastTs(a.id) - lastTs(b.id)));
+      return [...ans.filter(hit), ...ans.filter(i => !hit(i))].slice(0, n).map(i => i.id);
+    }
+    const focusTarget = Math.min(n, Math.max(1, Math.round(n * 0.75)));
+    const chosen = [];
+    // סבב בין הנושאים שנבחרו, כדי שכל נושא יקבל ייצוג; חדשות קודם
+    const lists = focus.map(k => {
+      const l = shuffle(all.filter(i => inTopic(i, k)));
+      return source === "all" ? l : [...l.filter(fresh), ...l.filter(i => !fresh(i))];
+    });
+    let added = true;
+    while (chosen.length < focusTarget && added) {
+      added = false;
+      for (const l of lists) {
+        while (l.length && chosen.includes(l[0].id)) l.shift();
+        if (l.length && chosen.length < focusTarget) { chosen.push(l.shift().id); added = true; }
+      }
+    }
+    const rest = buildPlain(stage, n + chosen.length, source).filter(id => !chosen.includes(id));
+    while (chosen.length < n && rest.length) chosen.push(rest.shift());
+    return orderInterview(chosen.slice(0, n));
+  }
+  function buildPlain(stage, n, source = "new") {
     const all = stageOf(stage).items();
     if (source === "answered") {
       // תרגול חוזר: קודם הציונים הנמוכים, ואז מה שלא תורגל הכי הרבה זמן
@@ -590,7 +657,7 @@
     const scored = sim.results.filter(r => r.score != null);
     const avg = scored.length ? scored.reduce((a, r) => a + r.score, 0) / scored.length : null;
     const sessTs = Date.now();
-    E.state.sessions.push({ ts: sessTs, stage: sim.stage, ids: sim.ids.slice(), origin: sim.origin || sessTs, partial: sim.results.length < sim.ids.length, items: sim.results.map(r => ({ id: r.id, score: r.score })), avg });
+    E.state.sessions.push({ ts: sessTs, stage: sim.stage, focus: sim.focus || [], ids: sim.ids.slice(), origin: sim.origin || sessTs, partial: sim.results.length < sim.ids.length, items: sim.results.map(r => ({ id: r.id, score: r.score })), avg });
     E.save();
     const weak = sim.results.filter(r => r.score != null && r.score < 7);
     main.innerHTML = `
@@ -606,8 +673,8 @@
     <button class="btn block" id="redo">${icon("mic")} ענה שוב על אותן שאלות</button>
     <div class="grid2 stack-sm"><button class="btn primary" id="again">סימולציה חדשה</button><a class="btn" href="#home">למסך הבית</a></div>`;
     $("#again").onclick = () => { sim = null; viewSim(main); };
-    const redoIds = sim.ids.slice(), redoStage = sim.stage, redoOrigin = sim.origin || sessTs;
-    $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, origin: redoOrigin, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
+    const redoIds = sim.ids.slice(), redoStage = sim.stage, redoOrigin = sim.origin || sessTs, redoFocus = sim.focus || [];
+    $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, focus: redoFocus, origin: redoOrigin, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
     const sum = await E.sessionSummary(sim.results);
     const box = $("#aiSum");
     if (!box) return;
