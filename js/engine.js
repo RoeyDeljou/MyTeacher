@@ -377,13 +377,16 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       this.onState("on");
     }
     async runTranscribe(blob) {
+      const gen = this.gen;
       this.onState("transcribing");
       try {
         const text = await transcribe(blob || this.lastBlob);
+        if (gen !== this.gen) return;                       // התשובה אופסה בינתיים
         if (text) this.onText(text);
         this.finished = true; this.onInterim("");
         this.onState("off", text ? "transcribed" : "empty");
       } catch (e) {
+        if (gen !== this.gen) return;
         this.finished = true;
         this.onState("off", "stt-" + (e.code || "error") + (e.status ? ":" + e.status : ""));
       }
@@ -448,6 +451,7 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
       const emitted = new Set();               // ב-Safari אותה תוצאה סופית יכולה לחזור – לא לכפול
       this.pending = "";
       r.onresult = ev => {
+        if (this.rec !== r) return;
         let interim = "";
         for (let i = ev.resultIndex; i < ev.results.length; i++) {
           const res = ev.results[i];
@@ -533,6 +537,26 @@ ${answer.code ? "קוד שהמועמד כתב:\n```csharp\n" + answer.code + "\n
     }
     seconds() { return this.elapsed + (this.active ? (performance.now() - this.startedAt) / 1000 : 0); }
     resetTime() { this.elapsed = 0; }
+    /* איפוס תשובה: עוצר הכול בלי לתמלל, מוחק הקלטה ומאפס זמן */
+    cancel() {
+      this.gen = (this.gen || 0) + 1;
+      clearTimeout(this.restartT);
+      this.active = false; this.finished = true; this.pending = "";
+      if (this.offs) { this.offs.forEach(f => { try { f(); } catch (e) { } }); this.offs = null; }
+      if (this.mode === "dictation" && dictation) dictation.stop().catch(() => { });
+      const r = this.rec; this.rec = null;
+      if (r) { try { r.abort(); } catch (e) { } }
+      if (this.mr && this.mr.state !== "inactive") {
+        this.mr.ondataavailable = null;
+        this.mr.onstop = () => { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); };
+        try { this.mr.stop(); } catch (e) { }
+      } else if (this.stream) this.stream.getTracks().forEach(t => t.stop());
+      this.mr = null; this.chunks = []; this.lastBlob = null;
+      if (this.audioUrl) { URL.revokeObjectURL(this.audioUrl); this.audioUrl = null; }
+      this.elapsed = 0;
+      this.onInterim("");
+      this.onState("off", "reset");
+    }
   }
 
   /* ───────── Speak question (TTS) ───────── */

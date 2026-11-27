@@ -255,7 +255,7 @@
     const isTech = !!it.k;
     const prevAttempts = E.state.attempts[it.id] || [];
     let kbStart = 0, text = "", interimText = "", audioUrl = null, mode = "text", timerId = null, ctl = null, evaluated = null;
-    const openedAt = performance.now();
+    let openedAt = performance.now();
     const target = isTech ? (it.time || 10) * 60 : E.state.settings.qSeconds;
 
     const rec = new E.Recorder({
@@ -328,6 +328,7 @@
       <textarea id="ans" class="answer" dir="rtl" placeholder="${isTech ? "תסביר כאן את מה שמצאת ואת ההחלטות שלך…" : "התמלול יופיע כאן, או הקלד…"}"></textarea>
       ${isTech && it.k !== "explain" ? `<label class="field" for="codeAns">הקוד שלך</label><textarea id="codeAns" class="answer codeed" dir="ltr" spellcheck="false" autocapitalize="off" autocomplete="off">${esc(it.code || "")}</textarea>` : ""}
       <div id="audioBox"></div>
+      <div id="resetAnsBox"><button class="btn ghost sm" id="resetAnsBtn">↺ התחל את התשובה מחדש</button></div>
       <button class="btn primary block" id="evalBtn">${icon("spark")} קבל משוב</button>
     </section>
     <div id="fb"></div>
@@ -356,6 +357,31 @@
     }
     function stopTimer() { if (timerId && !isTech) { clearInterval(timerId); timerId = null; } }
     if (isTech) startTimer();
+
+    function renderResetBtn() {
+      const box = $("#resetAnsBox", root);
+      box.innerHTML = `<button class="btn ghost sm" id="resetAnsBtn">↺ התחל את התשובה מחדש</button>`;
+      $("#resetAnsBtn", root).onclick = askReset;
+    }
+    function askReset() {
+      const box = $("#resetAnsBox", root);
+      box.innerHTML = `<div class="confirm"><b>להתחיל את התשובה מחדש?</b><p class="small">התמלול וההקלטה יימחקו והשעון יתאפס.</p><div class="row"><button class="btn gold sm" id="yesResetAns">כן, מחדש</button><button class="btn ghost sm" id="noResetAns">ביטול</button></div></div>`;
+      $("#noResetAns", root).onclick = renderResetBtn;
+      $("#yesResetAns", root).onclick = () => {
+        rec.cancel();
+        if (timerId) { clearInterval(timerId); timerId = null; }
+        kbStart = 0; mode = "text"; text = ""; interimText = "";
+        ta.value = "";
+        $("#interim", root).textContent = "";
+        $("#audioBox", root).innerHTML = "";
+        const tm = $("#timer", root); tm.textContent = "00:00"; tm.classList.remove("over");
+        const b = $("#recBtn", root); b.disabled = false; b.classList.remove("on", "stop"); b.innerHTML = icon("mic"); b.setAttribute("aria-label", "התחל הקלטה");
+        $("#recHint", root).textContent = "התשובה אופסה. לחץ על המיקרופון כדי להתחיל מחדש.";
+        if (isTech) { openedAt = performance.now(); startTimer(); }
+        renderResetBtn();
+      };
+    }
+    renderResetBtn();
 
     $("#evalBtn", root).onclick = async () => {
       if (rec.active) rec.stop();
@@ -469,7 +495,17 @@
         </select>
         <button class="btn primary block" id="simGo">${icon("play")} התחל סימולציה</button>
       </section>
-      ${st.sessions.length ? `<section class="card"><h2>סימולציות קודמות</h2>${st.sessions.slice(-6).reverse().map(s => `<div class="row between"><span>${new Date(s.ts).toLocaleDateString("he-IL")} · ${esc(stageOf(s.stage).name)}</span><span class="badge ${scoreCls(s.avg)}">${fmt(s.avg)}</span></div>`).join("")}</section>` : ""}`;
+      ${st.sessions.length ? `<section class="card"><h2>סימולציות קודמות</h2>
+        <p class="small muted">כל סימולציה שסיימת נשמרת כאן. "חזור על הסימולציה" מריץ בדיוק את אותן שאלות באותו סדר, ומשווה לניסיון הקודם.</p>
+        <div class="stack">${prevSimsHtml(st.sessions)}</div></section>` : ""}`;
+      main.querySelectorAll("[data-retake]").forEach(b => b.onclick = () => {
+        const sess = st.sessions[+b.dataset.retake];
+        const ids = (sess.ids || sess.items.map(x => x.id)).filter(id => findItem(id));
+        if (!ids.length) { toast("השאלות של הסימולציה הזו כבר לא קיימות"); return; }
+        sim = { stage: sess.stage, ids, origin: sess.origin || sess.ts, i: 0, results: [], done: false };
+        viewSim(main); window.scrollTo(0, 0);
+      });
+      main.querySelectorAll("[data-sdetail]").forEach(b => b.onclick = () => { const d = $("#sd-" + b.dataset.sdetail); d.hidden = !d.hidden; });
       $("#simGo").onclick = () => {
         const stage = $("#simStage").value, n = +$("#simLen").value, src = $("#simSrc").value;
         const ids = buildSim(stage, n, src);
@@ -493,6 +529,29 @@
         if (sim.i >= sim.ids.length) finishSim(main); else viewSim(main);
       }
     });
+  }
+  function prevSimsHtml(sessions) {
+    const rows = sessions.map((s, idx) => ({ s, idx })).reverse().slice(0, 20);
+    return rows.map(({ s, idx }) => {
+      const origin = s.origin || s.ts;
+      const same = sessions.filter(x => (x.origin || x.ts) === origin);
+      const n = same.indexOf(s) + 1;
+      const prev = n > 1 ? same[n - 2] : null;
+      const delta = prev && prev.avg != null && s.avg != null ? s.avg - prev.avg : null;
+      const ids = s.ids || s.items.map(x => x.id);
+      const scoreOf = id => { const it = s.items.find(x => x.id === id); return it ? it.score : null; };
+      return `<div class="term">
+        <div class="row between">
+          <div class="stack" style="gap:2px">
+            <b>${new Date(s.ts).toLocaleDateString("he-IL")} ${new Date(s.ts).toLocaleTimeString("he-IL", { hour: "2-digit", minute: "2-digit" })}</b>
+            <span class="small muted">${esc(stageOf(s.stage).short)} · ${ids.length} שאלות${s.partial ? " · לא הושלמה" : ""}${n > 1 ? ` · ניסיון ${n}` : ""}</span>
+          </div>
+          <div class="row" style="gap:6px">${delta != null ? `<span class="badge ${delta >= 0 ? "good" : "bad"}">${delta >= 0 ? "+" : ""}${fmt(delta)}</span>` : ""}<span class="score-dot ${scoreCls(s.avg)}">${fmt(s.avg)}</span></div>
+        </div>
+        <div class="row"><button class="btn sm primary" data-retake="${idx}">${icon("play")} חזור על הסימולציה</button><button class="btn sm ghost" data-sdetail="${idx}">השאלות</button></div>
+        <ol class="small" id="sd-${idx}" hidden>${ids.map(id => { const it = findItem(id); return it ? `<li>${esc(qText(it))} <span class="badge ${scoreCls(scoreOf(id))}">${fmt(scoreOf(id))}</span></li>` : ""; }).join("")}</ol>
+      </div>`;
+    }).join("");
   }
   function buildSim(stage, n, source = "new") {
     const all = stageOf(stage).items();
@@ -530,7 +589,8 @@
     sim.done = true;
     const scored = sim.results.filter(r => r.score != null);
     const avg = scored.length ? scored.reduce((a, r) => a + r.score, 0) / scored.length : null;
-    E.state.sessions.push({ ts: Date.now(), stage: sim.stage, items: sim.results.map(r => ({ id: r.id, score: r.score })), avg });
+    const sessTs = Date.now();
+    E.state.sessions.push({ ts: sessTs, stage: sim.stage, ids: sim.ids.slice(), origin: sim.origin || sessTs, partial: sim.results.length < sim.ids.length, items: sim.results.map(r => ({ id: r.id, score: r.score })), avg });
     E.save();
     const weak = sim.results.filter(r => r.score != null && r.score < 7);
     main.innerHTML = `
@@ -546,8 +606,8 @@
     <button class="btn block" id="redo">${icon("mic")} ענה שוב על אותן שאלות</button>
     <div class="grid2 stack-sm"><button class="btn primary" id="again">סימולציה חדשה</button><a class="btn" href="#home">למסך הבית</a></div>`;
     $("#again").onclick = () => { sim = null; viewSim(main); };
-    const redoIds = sim.ids.slice(), redoStage = sim.stage;
-    $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
+    const redoIds = sim.ids.slice(), redoStage = sim.stage, redoOrigin = sim.origin || sessTs;
+    $("#redo").onclick = () => { sim = { stage: redoStage, ids: redoIds, origin: redoOrigin, i: 0, results: [], done: false }; viewSim(main); window.scrollTo(0, 0); };
     const sum = await E.sessionSummary(sim.results);
     const box = $("#aiSum");
     if (!box) return;
