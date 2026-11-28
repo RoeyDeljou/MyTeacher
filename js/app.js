@@ -431,6 +431,11 @@
 
     cleanupPush(() => { if (rec.active) rec.stop(); if (timerId) clearInterval(timerId); if (ctl) ctl.abort(); E.stopSpeak(); });
   }
+  // "כותרת: הסבר" → כותרת מודגשת
+  function labeled(x) {
+    const m = String(x).match(/^([^:：]{2,40})[:：]\s*(.+)$/s);
+    return m ? `<b>${esc(m[1])}:</b> ${esc(m[2])}` : esc(x);
+  }
   function slimFb(fb) { const { coverage, metrics, ...rest } = fb; return rest; }
   function cleanupPush(fn) { const prev = cleanup; cleanup = () => { if (prev) prev(); fn(); }; }
 
@@ -450,9 +455,9 @@
       </div>
       ${fb.note ? `<p class="note">${esc(fb.note)}</p>` : ""}
 
-      ${fb.src !== "offline" && fb.strengths && fb.strengths.length ? `<div class="fb-sec"><h3>מה היה טוב</h3><ul>${fb.strengths.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
-      ${fb.corrections && fb.corrections.length ? `<div class="fb-sec"><h3>תיקונים טכניים</h3>${fb.corrections.map(c => `<div class="fix"><b>${esc(c.issue)}</b>${c.fix ? `<span>${esc(c.fix)}</span>` : ""}</div>`).join("")}</div>` : ""}
-      ${fb.src !== "offline" && fb.missing && fb.missing.length ? `<div class="fb-sec"><h3>מה חסר</h3><ul>${fb.missing.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+      ${fb.src !== "offline" && fb.strengths && fb.strengths.length ? `<div class="fb-sec"><h3>מה אהבתי בתשובה</h3><ul>${fb.strengths.map(x => `<li>${labeled(x)}</li>`).join("")}</ul></div>` : ""}
+      ${fb.src !== "offline" && fb.missing && fb.missing.length ? `<div class="fb-sec"><h3>מה הייתי מוסיף כדי להגיע ל-10/10</h3><ul>${fb.missing.map(x => `<li>${labeled(x)}</li>`).join("")}</ul></div>` : ""}
+      ${fb.corrections && fb.corrections.length ? `<div class="fb-sec"><h3>תיקונים</h3>${fb.corrections.map(c => `<div class="fix"><b>${esc(c.issue)}</b>${c.fix ? `<span>${esc(c.fix)}</span>` : ""}</div>`).join("")}</div>` : ""}
 
       ${fb.coverage && fb.coverage.length ? `<div class="fb-sec"><h3>${it.k ? "נקודות המפתח שמראיין יחפש" : "מה מראיין רוצה לשמוע ממך – רעיונות ודרך חשיבה, לא מונחים"}</h3>
         <ul class="points" id="cov">${fb.coverage.map((c, i) => `<li class="${c.hit ? "hit" : "miss"}"><span class="ic">${c.hit ? "✓" : "–"}</span><span>${esc(c.label)}</span></li>`).join("")}</ul>
